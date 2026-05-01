@@ -4,3 +4,81 @@ output: html_document
 author: Michał Dyrga & Nikodem Kusiak
 ---
 
+# Temat projektu.
+Celem pracy jest analiza ekonometryczna kursu Bitcoina w latach 2023–2026. Jako zmienne objasiniające wybrano: Złoto, S&P 500, USD Index, a zminenną objaśnianą będzie cena BTC.
+
+### 1. Zaczytanie bibliotek na których będziemy pracować. 
+``` {r warning = FALSE, message=FALSE }
+library(dplyr)
+library(lubridate) # change to "Date" type
+library(skimr) # present stats about our data frame
+```
+
+### 2. Zaczytanie danych na których będziemy pracować. Oraz odrazu je oczyścimy i przygotujemy do analizy:
+* z racji, że ^SPX posiada dodatkową kolumnę, usuwamy ją ponieważ pozostałe zmienne nie zawierają jej,
+* zmieniamy format kolumny data na "Date", zamiast "char",
+* wybierzemy kolumnę zamkniecia która będzie ceną reprezentatywną w danym dniu.
+``` {r}
+btc <- read.csv("data/btcusd_d.csv") %>% mutate(Data = ymd(Data)) %>% select(Data, btc = Zamkniecie)
+spx <- read.csv("data/spx_d.csv") %>% mutate(Data = ymd(Data)) %>% select(Data, spx = Zamkniecie)
+usd <- read.csv("data/usd_i_d.csv") %>% mutate(Data = ymd(Data)) %>% select(Data, usd = Zamkniecie)
+xau <- read.csv("data/xauusd_d.csv") %>% mutate(Data = ymd(Data)) %>% select(Data, xau = Zamkniecie)
+```
+
+### 3. Ponaddto aby móc jak najlepiej przeanalizować dane, musimy stworzyć jeden data frame który będzie przechowywał dla danej daty informcję z ceną.
+``` {r}
+df <- btc %>%
+  left_join(usd, by = "Data") %>%
+  left_join(spx, by = "Data") %>%
+  left_join(xau, by = "Data")
+```
+
+### 4. Usuwamy wiersze które nie posiadają danych.
+``` {r} 
+df <- na.omit(df) # deleting rows with missing data.
+skim(df) # showing df stats
+```
+
+## Analiza posiadanych danych
+Skoro nasze dane są już oczyszczone, zapoznajmy się z nimi i tym co reprezentują.
+``` {r} 
+
+```
+
+### Analiza korelacji danych.
+``` {r}
+cor_matrix <- cor(df[, c("btc", "usd", "spx", "xau")])
+cor_matrix
+```
+
+> **Wnioski: **
+>
+> * **BTC vs USD -0.28**: korelacja jest ujemna, korelacja jest słaba co oznaczam, że ta zmienna nie opisuje najlepiej ceny BTC,
+> * **BTC vs SPX 0.85**: bardzo silna korelacja dodatnia, BTC zachowuje się obecnie jak aktywo wysokiego ryzyka, korelując się z indeksem 500 największych spółek w USA,
+> * **BTC vs XAU 0.66**: korelacja jest umiarkowanie silna, BTC można nazywać jako cyforwe złoto, ale wciąż mocniej koreluje z giełdą SPX,
+> * **SPX vs XAU 0.89**: korelacja między dwiema zmiennymi objaśniającymi jest bardzo wysoka, podejrzenie **współliniowowści**, które zbadamy w późniejszej analizie.
+
+
+
+
+
+
+
+## Wzór opisujący BTC
+$$BTC_{price} = \beta_0 + \beta_1 \cdot USD_{index} + \beta_2 \cdot SPX + \beta_3 \cdot Gold + \epsilon$$
+
+``` {r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
