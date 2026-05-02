@@ -176,6 +176,41 @@ bptest(model_1)
 resettest(model_1, power = 2:3, type = "fitted")
 ```
 
+## Przekształcenie modelu (Odporne błędy standardowe / WMNK)
+Jeśli wystąpiła heteroskedastyczność, korzystamy z wniosków z laboratorium i stosujemy odporne błędy standardowe (HC) lub WMNK.
+
+``` {r warning=FALSE, message=FALSE}
+library(sandwich)
+
+# Użycie odpornych błędów standardowych (HAC) dla zniwelowania ewentualnej heteroskedastyczności/autokorelacji:
+coeftest(model_1, vcov = vcovHAC(model_1))
+```
+
+## Ostateczna ocena modelu i interpretacja parametrów
+Istotność zmiennych testowaliśmy za pomocą testów t-Studenta (widocznych w `summary()` lub `coeftest()`). 
+
+Współczynnik determinacji $R^2$:
+``` {r}
+summary(model_1)$r.squared
+```
+*Interpretacja:* Zmienne w modelu tłumaczą wariancję stóp zwrotu Bitcoina w $X\%$. Wzrost stopy zwrotu SPX o 1 p.p. powoduje średnio zmianę stopy zwrotu BTC o wartość współczynnika przy założeniu *ceteris paribus*.
+
+## Wyznaczenie prognozy punktowej i błędu EX POST
+Budujemy prognozę punktową dla zbioru testowego. Z racji, że modelowaliśmy stopy zwrotu, dla uzyskania ostatecznych wartości należałoby odwrócić transformację logarytmiczną, jednak dla uproszczenia ocenimy błąd prognozy EX POST na samych stopach zwrotu.
+
+``` {r}
+# Prognoza na zbiorze testowym
+prognoza <- predict(model_1, newdata = test_data)
+
+# Obliczenie względnego błędu prognozy EX POST
+rzeczywiste <- test_data$btc_r
+
+ex_post_error <- mean(abs((rzeczywiste - prognoza) / rzeczywiste), na.rm = TRUE) * 100
+cat("Względny błąd prognozy EX POST:", round(ex_post_error, 2), "%\n")
+```
+
+Jeśli błąd EX POST jest wysoki, wynika to ze specyfiki i olbrzymiej zmienności rynków kryptowalut, których wahania stóp zwrotu są niezwykle trudne do precyzyjnego przewidzenia.
+
 > **Wnioski: **
 >
 > * **BTC vs USD -0.28**: korelacja jest ujemna, korelacja jest słaba co oznaczam, że ta zmienna nie opisuje najlepiej ceny BTC,
