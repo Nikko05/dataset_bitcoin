@@ -51,6 +51,54 @@ cor_matrix <- cor(df[, c("btc", "usd", "spx", "xau")])
 cor_matrix
 ```
 
+### 5. Badanie stacjonarności i transformacja danych
+Większość finansowych szeregów czasowych (cen aktywów) jest niestacjonarna (są zintegrowane w stopniu 1). Zweryfikujemy to za pomocą testu ADF (Augmented Dickey-Fuller) oraz KPSS.
+
+``` {r warning=FALSE, message=FALSE}
+library(tseries)
+
+# Funkcja pomocnicza do testów
+test_stationarity <- function(series, name) {
+  adf <- adf.test(series)
+  kpss <- kpss.test(series)
+  cat(name, "-\t ADF p-value:", round(adf$p.value, 4), "\t KPSS p-value:", round(kpss$p.value, 4), "\n")
+}
+
+cat("Testy stacjonarności dla surowych cen:\n")
+test_stationarity(df$btc, "BTC")
+test_stationarity(df$spx, "SPX")
+test_stationarity(df$usd, "USD")
+test_stationarity(df$xau, "XAU")
+```
+
+Z uwagi na brak stacjonarności (typowe dla cen), przekształcimy zmienne na logarytmiczne stopy zwrotu (różnice logarytmów), co zniweluje niestacjonarność.
+
+``` {r}
+df_stat <- df %>%
+  arrange(Data) %>%
+  mutate(
+    btc_r = log(btc) - log(lag(btc)),
+    spx_r = log(spx) - log(lag(spx)),
+    usd_r = log(usd) - log(lag(usd)),
+    xau_r = log(xau) - log(lag(xau))
+  ) %>%
+  na.omit()
+
+cat("\nTesty stacjonarności dla logarytmicznych stóp zwrotu:\n")
+test_stationarity(df_stat$btc_r, "BTC zwroty")
+```
+Wszystkie przekształcone zmienne są teraz stacjonarne.
+
+### 6. Podział na zbiór uczący i testowy
+Zgodnie z wymaganiami, podpunkty 3-6 wykonujemy na zbiorze uczącym, a prognozę na testowym. Podzielimy dane w proporcji 80% do 20% (chronologicznie).
+
+``` {r}
+split_index <- floor(0.8 * nrow(df_stat))
+
+train_data <- df_stat[1:split_index, ]
+test_data <- df_stat[(split_index + 1):nrow(df_stat), ]
+```
+
 > **Wnioski: **
 >
 > * **BTC vs USD -0.28**: korelacja jest ujemna, korelacja jest słaba co oznaczam, że ta zmienna nie opisuje najlepiej ceny BTC,
