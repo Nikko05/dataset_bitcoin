@@ -364,7 +364,8 @@ Index, a zminenną objaśnianą będzie cena BTC.</p>
 <h3>1. Zaczytanie bibliotek na których będziemy pracować.</h3>
 <pre class="r"><code>library(dplyr)
 library(lubridate) # change to &quot;Date&quot; type
-library(skimr) # present stats about our data frame</code></pre>
+library(skimr) # present stats about our data frame
+library(readr)</code></pre>
 </div>
 <div id="zaczytanie-danych-na-których-będziemy-pracować.-oraz-odrazu-je-oczyścimy-i-przygotujemy-do-analizy" class="section level3">
 <h3>2. Zaczytanie danych na których będziemy pracować. Oraz odrazu je
@@ -376,10 +377,33 @@ pozostałe zmienne nie zawierają jej,</li>
 <li>wybierzemy kolumnę zamkniecia która będzie ceną reprezentatywną w
 danym dniu.</li>
 </ul>
-<pre class="r"><code>btc &lt;- read.csv(&quot;data/btcusd_d.csv&quot;) %&gt;% mutate(Data = ymd(Data)) %&gt;% select(Data, btc = Zamkniecie)
-spx &lt;- read.csv(&quot;data/spx_d.csv&quot;) %&gt;% mutate(Data = ymd(Data)) %&gt;% select(Data, spx = Zamkniecie)
-usd &lt;- read.csv(&quot;data/usd_i_d.csv&quot;) %&gt;% mutate(Data = ymd(Data)) %&gt;% select(Data, usd = Zamkniecie)
-xau &lt;- read.csv(&quot;data/xauusd_d.csv&quot;) %&gt;% mutate(Data = ymd(Data)) %&gt;% select(Data, xau = Zamkniecie)</code></pre>
+<pre class="r"><code>clean_financial_data &lt;- function(filepath, asset_name) {
+  # Read the CSV
+  df &lt;- read.csv(filepath)
+  
+  # Forcefully rename the 1st and 2nd columns to safe, predictable names
+  colnames(df)[1] &lt;- &quot;raw_date&quot;
+  colnames(df)[2] &lt;- &quot;raw_close&quot;
+  
+  df %&gt;%
+    # Use parse_date_time to safely catch both MM/DD/YYYY and YYYY-MM-DD formats
+    mutate(Data = parse_date_time(raw_date, orders = c(&quot;mdy&quot;, &quot;ymd&quot;, &quot;dmy&quot;))) %&gt;%
+    # Convert to Date class
+    mutate(Data = as.Date(Data)) %&gt;%
+    # Drop rows where date parsing failed (prevents the Cartesian explosion of NAs)
+    filter(!is.na(Data)) %&gt;%
+    # Keep only the Date and the asset&#39;s closing price
+    select(Data, !!sym(asset_name) := raw_close) %&gt;%
+    # Ensure there are no duplicate dates (takes the first occurrence)
+    distinct(Data, .keep_all = TRUE)
+}
+
+# Apply the function to all files
+btc    &lt;- clean_financial_data(&quot;data/btcusd_d.csv&quot;, &quot;btc&quot;)
+spx    &lt;- clean_financial_data(&quot;data/spx_d.csv&quot;, &quot;spx&quot;)
+usd    &lt;- clean_financial_data(&quot;data/usd_i_d.csv&quot;, &quot;usd&quot;)
+xau    &lt;- clean_financial_data(&quot;data/xauusd_d.csv&quot;, &quot;xau&quot;)
+nasdaq &lt;- clean_financial_data(&quot;data/nasdaq_d.csv&quot;, &quot;nasdaq&quot;)</code></pre>
 </div>
 <div id="ponaddto-aby-móc-jak-najlepiej-przeanalizować-dane-musimy-stworzyć-jeden-data-frame-który-będzie-przechowywał-dla-danej-daty-informcję-z-ceną." class="section level3">
 <h3>3. Ponaddto aby móc jak najlepiej przeanalizować dane, musimy
@@ -388,7 +412,8 @@ informcję z ceną.</h3>
 <pre class="r"><code>df &lt;- btc %&gt;%
   left_join(usd, by = &quot;Data&quot;) %&gt;%
   left_join(spx, by = &quot;Data&quot;) %&gt;%
-  left_join(xau, by = &quot;Data&quot;)</code></pre>
+  left_join(xau, by = &quot;Data&quot;) %&gt;%
+  left_join(nasdaq, by = &quot;Data&quot;)</code></pre>
 </div>
 <div id="usuwamy-wiersze-które-nie-posiadają-danych." class="section level3">
 <h3>4. Usuwamy wiersze które nie posiadają danych.</h3>
@@ -407,7 +432,7 @@ skim(df) # showing df stats</code></pre>
 </tr>
 <tr class="odd">
 <td align="left">Number of columns</td>
-<td align="left">5</td>
+<td align="left">6</td>
 </tr>
 <tr class="even">
 <td align="left">_______________________</td>
@@ -423,7 +448,7 @@ skim(df) # showing df stats</code></pre>
 </tr>
 <tr class="odd">
 <td align="left">numeric</td>
-<td align="left">4</td>
+<td align="left">5</td>
 </tr>
 <tr class="even">
 <td align="left">________________________</td>
@@ -504,13 +529,13 @@ skim(df) # showing df stats</code></pre>
 <td align="left">btc</td>
 <td align="right">0</td>
 <td align="right">1</td>
-<td align="right">69942.65</td>
-<td align="right">29420.00</td>
+<td align="right">69888.37</td>
+<td align="right">29452.19</td>
 <td align="right">25119.00</td>
-<td align="right">42742.72</td>
-<td align="right">67878.70</td>
-<td align="right">95398.60</td>
-<td align="right">125173.00</td>
+<td align="right">42643.38</td>
+<td align="right">67974.45</td>
+<td align="right">95384.73</td>
+<td align="right">125165.00</td>
 <td align="left">▇▅▆▆▅</td>
 </tr>
 <tr class="even">
@@ -520,37 +545,50 @@ skim(df) # showing df stats</code></pre>
 <td align="right">63.24</td>
 <td align="right">1.62</td>
 <td align="right">59.95</td>
-<td align="right">61.85</td>
-<td align="right">63.22</td>
-<td align="right">64.53</td>
-<td align="right">67.20</td>
+<td align="right">61.84</td>
+<td align="right">63.23</td>
+<td align="right">64.54</td>
+<td align="right">67.18</td>
 <td align="left">▅▇▇▇▂</td>
 </tr>
 <tr class="odd">
 <td align="left">spx</td>
 <td align="right">0</td>
 <td align="right">1</td>
-<td align="right">5542.02</td>
-<td align="right">869.34</td>
-<td align="right">4055.99</td>
-<td align="right">4756.03</td>
-<td align="right">5598.21</td>
-<td align="right">6226.00</td>
-<td align="right">6978.60</td>
+<td align="right">5541.06</td>
+<td align="right">870.54</td>
+<td align="right">4075.29</td>
+<td align="right">4744.83</td>
+<td align="right">5602.99</td>
+<td align="right">6203.92</td>
+<td align="right">7002.00</td>
 <td align="left">▇▅▇▇▇</td>
 </tr>
 <tr class="even">
 <td align="left">xau</td>
 <td align="right">0</td>
 <td align="right">1</td>
-<td align="right">2840.62</td>
-<td align="right">910.19</td>
-<td align="right">1820.26</td>
-<td align="right">2028.61</td>
-<td align="right">2606.90</td>
-<td align="right">3344.81</td>
-<td align="right">5415.17</td>
+<td align="right">2837.67</td>
+<td align="right">908.74</td>
+<td align="right">1820.80</td>
+<td align="right">2028.66</td>
+<td align="right">2601.98</td>
+<td align="right">3343.58</td>
+<td align="right">5425.04</td>
 <td align="left">▇▃▂▂▁</td>
+</tr>
+<tr class="odd">
+<td align="left">nasdaq</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="right">17841.28</td>
+<td align="right">3415.17</td>
+<td align="right">11799.16</td>
+<td align="right">14934.56</td>
+<td align="right">17744.47</td>
+<td align="right">20397.98</td>
+<td align="right">23958.47</td>
+<td align="left">▇▆▇▆▇</td>
 </tr>
 </tbody>
 </table>
@@ -559,15 +597,33 @@ skim(df) # showing df stats</code></pre>
 <h2>Analiza posiadanych danych</h2>
 <p>Skoro nasze dane są już oczyszczone, zapoznajmy się z nimi i tym co
 reprezentują.</p>
+<pre class="r"><code>summary(df)</code></pre>
+<pre><code>##       Data                 btc              usd             spx      
+##  Min.   :2023-04-03   Min.   : 25119   Min.   :59.95   Min.   :4075  
+##  1st Qu.:2024-01-01   1st Qu.: 42643   1st Qu.:61.84   1st Qu.:4745  
+##  Median :2024-09-30   Median : 67974   Median :63.23   Median :5603  
+##  Mean   :2024-09-30   Mean   : 69888   Mean   :63.24   Mean   :5541  
+##  3rd Qu.:2025-07-02   3rd Qu.: 95385   3rd Qu.:64.54   3rd Qu.:6204  
+##  Max.   :2026-04-01   Max.   :125165   Max.   :67.18   Max.   :7002  
+##       xau           nasdaq     
+##  Min.   :1821   Min.   :11799  
+##  1st Qu.:2029   1st Qu.:14935  
+##  Median :2602   Median :17744  
+##  Mean   :2838   Mean   :17841  
+##  3rd Qu.:3344   3rd Qu.:20398  
+##  Max.   :5425   Max.   :23958</code></pre>
+<pre class="r"><code>plot(df$Data, df$btc, type=&quot;l&quot;, col=&quot;blue&quot;, main=&quot;Cena BTC&quot;, xlab=&quot;Data&quot;, ylab=&quot;Cena&quot;)</code></pre>
+<p><img role="img" src="data:image/png;base64,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" width="672" /></p>
 <div id="analiza-korelacji-danych." class="section level3">
 <h3>Analiza korelacji danych.</h3>
-<pre class="r"><code>cor_matrix &lt;- cor(df[, c(&quot;btc&quot;, &quot;usd&quot;, &quot;spx&quot;, &quot;xau&quot;)])
+<pre class="r"><code>cor_matrix &lt;- cor(df[, c(&quot;btc&quot;, &quot;usd&quot;, &quot;spx&quot;, &quot;xau&quot;, &quot;nasdaq&quot;)])
 cor_matrix</code></pre>
-<pre><code>##            btc        usd        spx        xau
-## btc  1.0000000 -0.2809151  0.8508109  0.6603372
-## usd -0.2809151  1.0000000 -0.4073593 -0.5718519
-## spx  0.8508109 -0.4073593  1.0000000  0.8958694
-## xau  0.6603372 -0.5718519  0.8958694  1.0000000</code></pre>
+<pre><code>##               btc        usd        spx        xau     nasdaq
+## btc     1.0000000 -0.2809888  0.8526271  0.6619721  0.8431044
+## usd    -0.2809888  1.0000000 -0.4070658 -0.5713153 -0.4131168
+## spx     0.8526271 -0.4070658  1.0000000  0.8949332  0.9945850
+## xau     0.6619721 -0.5713153  0.8949332  1.0000000  0.8958352
+## nasdaq  0.8431044 -0.4131168  0.9945850  0.8958352  1.0000000</code></pre>
 <blockquote>
 <p><strong>Wnioski: </strong></p>
 <ul>
@@ -593,6 +649,318 @@ analizie.</li>
 <p><span class="math display">\[BTC_{price} = \beta_0 + \beta_1 \cdot
 USD_{index} + \beta_2 \cdot SPX + \beta_3 \cdot Gold +
 \epsilon\]</span></p>
+<hr />
+</div>
+<div id="kontynuacja-projektu" class="section level2">
+<h2>Kontynuacja projektu</h2>
+<div id="dodatkowe-biblioteki-potrzebne-do-zaawansowanej-weryfikacji-modelu" class="section level3">
+<h3>5. Dodatkowe biblioteki potrzebne do zaawansowanej weryfikacji
+modelu</h3>
+<p>Zgodnie z wymogami projektu oraz wiedzą z laboratoriów ładujemy
+potrzebne pakiety do testów statystycznych.</p>
+<pre class="r"><code>library(tseries)     # Testy stacjonarności (ADF, KPSS)
+library(lmtest)      # Testy dla modeli (np. Breuscha-Pagana, Durbina-Watsona, RESET)
+library(car)         # Testowanie współliniowości (VIF)
+library(sandwich)    # Odporne błędy standardowe
+library(strucchange) # Test Chowa</code></pre>
+</div>
+<div id="badanie-stacjonarności-zmiennych-i-ich-przygotowanie-logarytmiczne-stopy-zwrotu" class="section level3">
+<h3>6. Badanie stacjonarności zmiennych i ich przygotowanie
+(logarytmiczne stopy zwrotu)</h3>
+<p>Ceny aktywów finansowych z reguły są niestacjonarne. Sprawdźmy to za
+pomocą testu ADF. Hipoteza zerowa w teście ADF oznacza brak
+stacjonarności.</p>
+<pre class="r"><code># Przykładowy test dla zmiennej BTC
+adf.test(df$btc)</code></pre>
+<pre><code>## 
+##  Augmented Dickey-Fuller Test
+## 
+## data:  df$btc
+## Dickey-Fuller = -0.77053, Lag order = 9, p-value = 0.9642
+## alternative hypothesis: stationary</code></pre>
+<pre class="r"><code>kpss.test(df$btc)</code></pre>
+<pre><code>## Warning in kpss.test(df$btc): p-value smaller than printed p-value</code></pre>
+<pre><code>## 
+##  KPSS Test for Level Stationarity
+## 
+## data:  df$btc
+## KPSS Level = 8.7185, Truncation lag parameter = 6, p-value = 0.01</code></pre>
+<p>Z uwagi na naturę danych finansowych (szeregi czasowe) transformujemy
+je na logarytmiczne stopy zwrotu, by wyeliminować niestacjonarność
+(trend).</p>
+<pre class="r"><code>df_log &lt;- df %&gt;%
+  mutate(
+    btc = c(NA, diff(log(btc))),
+    usd = c(NA, diff(log(usd))),
+    spx = c(NA, diff(log(spx))),
+    xau = c(NA, diff(log(xau))),
+    nasdaq = c(NA, diff(log(nasdaq)))
+  ) %&gt;% 
+  na.omit()
+
+# Ponowny test ADF dla przetransformowanych danych
+adf.test(df_log$btc)</code></pre>
+<pre><code>## Warning in adf.test(df_log$btc): p-value smaller than printed p-value</code></pre>
+<pre><code>## 
+##  Augmented Dickey-Fuller Test
+## 
+## data:  df_log$btc
+## Dickey-Fuller = -8.0734, Lag order = 9, p-value = 0.01
+## alternative hypothesis: stationary</code></pre>
+<p>Teraz nasze dane są stacjonarne (p-value w teście ADF &lt; 0.05).</p>
+</div>
+<div id="podział-na-zbiór-uczący-i-testowy" class="section level3">
+<h3>7. Podział na zbiór uczący i testowy</h3>
+<p>Zgodnie z wymaganiami kroki od 3 do 6 wykonujemy na zbiorze uczącym
+(np. 80% obserwacji), a prognozę na zbiorze testowym (20%).</p>
+<pre class="r"><code>n &lt;- nrow(df_log)
+split_idx &lt;- floor(0.8 * n)
+
+train_data &lt;- df_log[1:split_idx, ]
+test_data &lt;- df_log[(split_idx + 1):n, ]</code></pre>
+</div>
+<div id="budowa-modelu-i-dobór-zmiennych-zbiór-uczący" class="section level3">
+<h3>8. Budowa modelu i dobór zmiennych (Zbiór uczący)</h3>
+<p>Zbudujemy model wstępny ze wszystkimi zmiennymi i zastosujemy
+krokowej metody eliminacji wstecznej.</p>
+<pre class="r"><code># Uwzględniamy również zmienną nasdaq
+model_full &lt;- lm(btc ~ usd + spx + xau + nasdaq, data = train_data)
+summary(model_full)</code></pre>
+<pre><code>## 
+## Call:
+## lm(formula = btc ~ usd + spx + xau + nasdaq, data = train_data)
+## 
+## Residuals:
+##       Min        1Q    Median        3Q       Max 
+## -0.118534 -0.015222 -0.001204  0.015914  0.089886 
+## 
+## Coefficients:
+##              Estimate Std. Error t value Pr(&gt;|t|)    
+## (Intercept)  0.001619   0.001131   1.431    0.153    
+## usd         -0.085588   0.327795  -0.261    0.794    
+## spx          0.933431   0.119128   7.836 2.16e-14 ***
+## xau          0.060637   0.134505   0.451    0.652    
+## nasdaq      -0.065120   0.088304  -0.737    0.461    
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## Residual standard error: 0.02744 on 595 degrees of freedom
+## Multiple R-squared:  0.09659,    Adjusted R-squared:  0.09052 
+## F-statistic:  15.9 on 4 and 595 DF,  p-value: 2.231e-12</code></pre>
+<pre class="r"><code># Metoda krokowa wsteczna
+model_step &lt;- step(model_full, direction = &quot;backward&quot;)</code></pre>
+<pre><code>## Start:  AIC=-4310.04
+## btc ~ usd + spx + xau + nasdaq
+## 
+##          Df Sum of Sq     RSS     AIC
+## - usd     1  0.000051 0.44798 -4312.0
+## - xau     1  0.000153 0.44808 -4311.8
+## - nasdaq  1  0.000409 0.44833 -4311.5
+## &lt;none&gt;                0.44792 -4310.0
+## - spx     1  0.046219 0.49414 -4253.1
+## 
+## Step:  AIC=-4311.97
+## btc ~ spx + xau + nasdaq
+## 
+##          Df Sum of Sq     RSS     AIC
+## - xau     1  0.000324 0.44830 -4313.5
+## - nasdaq  1  0.000400 0.44838 -4313.4
+## &lt;none&gt;                0.44798 -4312.0
+## - spx     1  0.046326 0.49430 -4254.9
+## 
+## Step:  AIC=-4313.53
+## btc ~ spx + nasdaq
+## 
+##          Df Sum of Sq     RSS     AIC
+## - nasdaq  1  0.000449 0.44875 -4314.9
+## &lt;none&gt;                0.44830 -4313.5
+## - spx     1  0.047399 0.49570 -4255.2
+## 
+## Step:  AIC=-4314.93
+## btc ~ spx
+## 
+##        Df Sum of Sq     RSS     AIC
+## &lt;none&gt;              0.44875 -4314.9
+## - spx   1  0.047069 0.49582 -4257.1</code></pre>
+<pre class="r"><code>summary(model_step)</code></pre>
+<pre><code>## 
+## Call:
+## lm(formula = btc ~ spx, data = train_data)
+## 
+## Residuals:
+##       Min        1Q    Median        3Q       Max 
+## -0.115664 -0.015259 -0.000923  0.015850  0.089043 
+## 
+## Coefficients:
+##             Estimate Std. Error t value Pr(&gt;|t|)    
+## (Intercept) 0.001622   0.001122   1.446    0.149    
+## spx         0.927725   0.117139   7.920 1.16e-14 ***
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## Residual standard error: 0.02739 on 598 degrees of freedom
+## Multiple R-squared:  0.09493,    Adjusted R-squared:  0.09342 
+## F-statistic: 62.72 on 1 and 598 DF,  p-value: 1.163e-14</code></pre>
+<p>Zatrzymujemy model wyłoniony przez procedurę krokową.</p>
+</div>
+<div id="weryfikacja-poprawności-modelu" class="section level3">
+<h3>9. Weryfikacja poprawności modelu</h3>
+<p>Przeprowadzimy teraz szereg testów weryfikujących założenia Metody
+Najmniejszych Kwadratów (MNK).</p>
+<div id="a-badanie-normalności-rozkładu-reszt" class="section level4">
+<h4>a) Badanie normalności rozkładu reszt</h4>
+<p>Wykorzystujemy test Shapiro-Wilka.</p>
+<pre class="r"><code>shapiro.test(residuals(model_step))</code></pre>
+<pre><code>## 
+##  Shapiro-Wilk normality test
+## 
+## data:  residuals(model_step)
+## W = 0.9859, p-value = 1.516e-05</code></pre>
+</div>
+<div id="b-testowanie-autokorelacji-składnika-losowego" class="section level4">
+<h4>b) Testowanie autokorelacji składnika losowego</h4>
+<p>Wykorzystamy poznany na zajęciach test Durbina-Watsona (autokorelacja
+rzędu I) oraz test Breuscha-Godfreya.</p>
+<pre class="r"><code>dwtest(model_step)</code></pre>
+<pre><code>## 
+##  Durbin-Watson test
+## 
+## data:  model_step
+## DW = 2.0164, p-value = 0.5815
+## alternative hypothesis: true autocorrelation is greater than 0</code></pre>
+<pre class="r"><code>bgtest(model_step)</code></pre>
+<pre><code>## 
+##  Breusch-Godfrey test for serial correlation of order up to 1
+## 
+## data:  model_step
+## LM test = 0.044851, df = 1, p-value = 0.8323</code></pre>
+</div>
+<div id="c-badanie-heteroskedastyczności" class="section level4">
+<h4>c) Badanie heteroskedastyczności</h4>
+<p>Zastosujemy test Breuscha-Pagana oraz Goldfelda-Quandta.</p>
+<pre class="r"><code>bptest(model_step)</code></pre>
+<pre><code>## 
+##  studentized Breusch-Pagan test
+## 
+## data:  model_step
+## BP = 0.011756, df = 1, p-value = 0.9137</code></pre>
+<pre class="r"><code>gqtest(model_step)</code></pre>
+<pre><code>## 
+##  Goldfeld-Quandt test
+## 
+## data:  model_step
+## GQ = 0.93103, df1 = 298, df2 = 298, p-value = 0.7311
+## alternative hypothesis: variance increases from segment 1 to 2</code></pre>
+</div>
+<div id="d-testowanie-współliniowości" class="section level4">
+<h4>d) Testowanie współliniowości</h4>
+<p>Sprawdzamy wskaźnik VIF (Variance Inflation Factor). Wartości powyżej
+10 świadczą o silnej współliniowości.</p>
+<pre class="r"><code># VIF wymaga co najmniej 2 zmiennych objaśniających
+if (length(coef(model_step)) &gt; 2) {
+  vif(model_step)
+} else {
+  message(&quot;Model posiada tylko jedną zmienną objaśniającą. Zjawisko współliniowości nie występuje, test VIF pominięto.&quot;)
+}</code></pre>
+<pre><code>## Model posiada tylko jedną zmienną objaśniającą. Zjawisko współliniowości nie występuje, test VIF pominięto.</code></pre>
+</div>
+<div id="e-testowanie-stabilności-parametrów-modelu-test-chowa" class="section level4">
+<h4>e) Testowanie stabilności parametrów modelu (test Chowa)</h4>
+<pre class="r"><code># Używamy dynamicznego formula(model_step), aby test sprawdzał model, który przetrwał metodę krokową
+sctest(formula(model_step), type = &quot;Chow&quot;, point = floor(nrow(train_data)/2), data = train_data)</code></pre>
+<pre><code>## 
+##  Chow test
+## 
+## data:  formula(model_step)
+## F = 2.089, p-value = 0.1247</code></pre>
+</div>
+<div id="f-testowanie-stabilności-postaci-analitycznej-modelu" class="section level4">
+<h4>f) Testowanie stabilności postaci analitycznej modelu</h4>
+<p>Wykorzystamy test Ramsey’a (RESET).</p>
+<pre class="r"><code>resettest(model_step)</code></pre>
+<pre><code>## 
+##  RESET test
+## 
+## data:  model_step
+## RESET = 0.072826, df1 = 2, df2 = 596, p-value = 0.9298</code></pre>
+</div>
+<div id="g-badanie-koincydencji-i-efektu-katalizy" class="section level4">
+<h4>g) Badanie koincydencji i efektu katalizy</h4>
+<p>Badanie koincydencji polega na porównaniu znaków współczynników
+korelacji ze znakami parametrów przy zmiennych objaśniających w
+oszacowanym modelu. Efekt katalizy zachodzi m.in., gdy zmienna słabo
+skorelowana ze zmienną objaśnianą mocno wpływa na inne zmienne
+objaśniające.</p>
+<pre class="r"><code># Macierz korelacji tylko dla zbioru uczącego (stopy zwrotu)
+cor(train_data[, c(&quot;btc&quot;, &quot;usd&quot;, &quot;spx&quot;, &quot;xau&quot;, &quot;nasdaq&quot;)])</code></pre>
+<pre><code>##                btc          usd         spx         xau       nasdaq
+## btc     1.00000000 -0.041358874  0.30811086  0.05220531  0.015521000
+## usd    -0.04135887  1.000000000 -0.06562178 -0.48051659 -0.009027248
+## spx     0.30811086 -0.065621777  1.00000000  0.08073551  0.146985113
+## xau     0.05220531 -0.480516594  0.08073551  1.00000000 -0.050878970
+## nasdaq  0.01552100 -0.009027248  0.14698511 -0.05087897  1.000000000</code></pre>
+<pre class="r"><code>coef(model_step)</code></pre>
+<pre><code>## (Intercept)         spx 
+## 0.001621767 0.927724561</code></pre>
+<p><em>(Zgodność znaków współczynników regresji z korelacją oznacza
+występowanie koincydencji).</em></p>
+</div>
+</div>
+<div id="przekształcenie-modelu-rozwiązanie-problemów" class="section level3">
+<h3>10. Przekształcenie modelu (Rozwiązanie problemów)</h3>
+<p>Jeśli testy w punkcie 9 wykazały problemy (np. heteroskedastyczność
+lub autokorelację), zgodnie z instrukcją próbujemy sobie z nimi
+poradzić. Wykorzystamy tu <strong>odporne błędy standardowe (HAC -
+Heteroskedasticity and Autocorrelation Consistent)</strong>.</p>
+<pre class="r"><code># Wyświetlenie istotności parametrów po korekcie błędów standardowych (HAC)
+coeftest(model_step, vcov = vcovHAC(model_step))</code></pre>
+<pre><code>## 
+## t test of coefficients:
+## 
+##              Estimate Std. Error t value  Pr(&gt;|t|)    
+## (Intercept) 0.0016218  0.0011233  1.4438    0.1493    
+## spx         0.9277246  0.1224951  7.5736 1.385e-13 ***
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1</code></pre>
+</div>
+<div id="prezentacja-ostatecznej-postaci-modelu-i-jego-ocena" class="section level3">
+<h3>11. Prezentacja ostatecznej postaci modelu i jego ocena</h3>
+<p>Model po ewentualnej weryfikacji i zastosowaniu odpornych błędów.
+Oceniamy dopasowanie za pomocą <span class="math inline">\(R^2\)</span>
+(współczynnika determinacji), który odczytujemy z podsumowania funkcji
+<code>summary()</code>. Wykonaliśmy też ocenę istotności zmiennych w
+powyższych krokach (test t-Studenta oraz F Walda).</p>
+<pre class="r"><code>summary(model_step)$r.squared</code></pre>
+<pre><code>## [1] 0.0949323</code></pre>
+<pre class="r"><code>summary(model_step)$adj.r.squared</code></pre>
+<pre><code>## [1] 0.09341881</code></pre>
+<blockquote>
+<p><strong>Interpretacja:</strong> Ponieważ model opiera się na
+logarytmicznych stopach zwrotu, parametry <span class="math inline">\(\beta\)</span> informują o tym, o ile punktów
+procentowych zmieni się stopa zwrotu bitcoina, jeśli stopa zwrotu danej
+zmiennej objaśniającej wzrośnie o 1 punkt procentowy ceteris paribus.
+Współczynnik determinacji mówi, jaki procent zmienności (stóp zwrotu)
+bitcoina został wyjaśniony przez model.</p>
+</blockquote>
+</div>
+<div id="wyznaczenie-prognozy-punktowej-i-obliczenie-błędu-ex-post-zbiór-testowy" class="section level3">
+<h3>12. Wyznaczenie prognozy punktowej i obliczenie błędu ex post (Zbiór
+testowy)</h3>
+<p>Podstawiamy dane ze zbioru testowego do naszego finalnego modelu.</p>
+<pre class="r"><code># Prognoza
+predykcje &lt;- predict(model_step, newdata = test_data)
+
+# Błąd ex-post: Pierwiastek Błędu Średniokwadratowego (RMSE)
+rmse &lt;- sqrt(mean((test_data$btc - predykcje)^2))
+rmse</code></pre>
+<pre><code>## [1] 0.02827954</code></pre>
+<pre class="r"><code># Średni błąd bezwzględny (MAE)
+mae &lt;- mean(abs(test_data$btc - predykcje))
+mae</code></pre>
+<pre><code>## [1] 0.02099292</code></pre>
+<p>Na podstawie powyższych błędów ocenia się zdolność predykcyjną
+oszacowanego modelu.</p>
+</div>
 </div>
 </div>
 
