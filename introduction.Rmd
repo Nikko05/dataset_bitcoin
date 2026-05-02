@@ -99,6 +99,48 @@ train_data <- df_stat[1:split_index, ]
 test_data <- df_stat[(split_index + 1):nrow(df_stat), ]
 ```
 
+## Dobór zmiennych i budowa modelu
+
+Wykorzystamy metodę krokową wsteczną (backward elimination) opartą na kryterium AIC, aby dobrać optymalne zmienne objaśniające ze stacjonarnego zbioru.
+
+``` {r}
+# Model pełny
+model_full <- lm(btc_r ~ spx_r + usd_r + xau_r, data = train_data)
+
+# Metoda krokowa wsteczna
+model_step <- step(model_full, direction = "backward")
+summary(model_step)
+```
+
+Zapisujemy ostateczny model jako `model_1`.
+``` {r}
+# Zakładamy, że step wybrał wszystkie lub odrzucił część, tworzymy model_1
+model_1 <- model_step
+```
+
+### Weryfikacja współliniowości (VIF), koincydencji i efektu katalizy
+``` {r warning=FALSE, message=FALSE}
+library(car)
+
+# VIF
+vif_values <- vif(model_1)
+print(vif_values)
+```
+Jeżeli `VIF < 5`, współliniowość nie stanowi problemu (wartości >10 są krytyczne).
+
+**Badanie koincydencji:** Sprawdzamy czy znaki parametrów przy zmiennych w modelu zgadzają się ze znakami współczynników korelacji pomiędzy zmienną objaśnianą a objaśniającymi.
+``` {r}
+cor_train <- cor(train_data[, c("btc_r", "spx_r", "usd_r", "xau_r")])
+cat("Korelacje z btc_r:\n")
+cor_train["btc_r", ]
+cat("\nZnaki współczynników w modelu:\n")
+sign(coef(model_1)[-1])
+```
+Jeżeli znaki korelacji zgadzają się ze znakami współczynników, **nie występuje** nielogiczna koincydencja.
+
+**Badanie efektu katalizy:**
+Zjawisko to występuje, gdy zmienna silnie koreluje z inną zmienną objaśniającą, a słabo z objaśnianą, "oczyszczając" ją. Analiza macierzy korelacji wyklucza silne korelacje krzyżowe w stopach zwrotu.
+
 > **Wnioski: **
 >
 > * **BTC vs USD -0.28**: korelacja jest ujemna, korelacja jest słaba co oznaczam, że ta zmienna nie opisuje najlepiej ceny BTC,
