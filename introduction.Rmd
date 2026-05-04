@@ -41,9 +41,6 @@ skim(df) # showing df stats
 
 ## Analiza posiadanych danych
 Skoro nasze dane są już oczyszczone, zapoznajmy się z nimi i tym co reprezentują.
-``` {r} 
-
-```
 
 ### Analiza korelacji danych.
 ``` {r}
@@ -58,7 +55,10 @@ cor_matrix
 > * **BTC vs XAU 0.66**: korelacja jest umiarkowanie silna, BTC można nazywać jako cyforwe złoto, ale wciąż mocniej koreluje z giełdą SPX,
 > * **SPX vs XAU 0.89**: korelacja między dwiema zmiennymi objaśniającymi jest bardzo wysoka, podejrzenie **współliniowowści**, które zbadamy w późniejszej analizie.
 
-
+### Analiza statysyk opisowych:
+``` {r}
+summary(df[, c("btc", "usd", "spx", "xau")])
+```
 
 
 
