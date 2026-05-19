@@ -10,8 +10,14 @@ Celem pracy jest analiza ekonometryczna kursu Bitcoina w latach 2023–2026. Jak
 ### 1. Zaczytanie bibliotek na których będziemy pracować. 
 ``` {r warning = FALSE, message=FALSE }
 library(dplyr)
-library(lubridate) # change to "Date" type
-library(skimr) # present stats about our data frame
+library(lubridate)   # change to "Date" type
+library(skimr)       # present stats about our data frame
+library(tseries)     # Testy stacjonarności (ADF, KPSS)
+library(lmtest)      # Testy dla modeli (np. Breuscha-Pagana, Durbina-Watsona, RESET)
+library(car)         # Testowanie współliniowości (VIF)
+library(sandwich)    # Odporne błędy standardowe
+library(strucchange) # Test Chowa
+library(utils)
 ```
 
 ### 2. Zaczytanie danych na których będziemy pracować. Oraz odrazu je oczyścimy i przygotujemy do analizy:
@@ -41,8 +47,12 @@ skim(df) # showing df stats
 
 ## Analiza posiadanych danych
 Skoro nasze dane są już oczyszczone, zapoznajmy się z nimi i tym co reprezentują.
+``` {r} 
+summary(df)
+plot(df$Data, df$btc, type="l", col="blue", main="Cena BTC", xlab="Data", ylab="Cena")
+```
 
-### Analiza korelacji danych.
+### 1. Analiza korelacji danych.
 ``` {r}
 cor_matrix <- cor(df[, c("btc", "usd", "spx", "xau")])
 cor_matrix
@@ -55,20 +65,133 @@ cor_matrix
 > * **BTC vs XAU 0.66**: korelacja jest umiarkowanie silna, BTC można nazywać jako cyforwe złoto, ale wciąż mocniej koreluje z giełdą SPX,
 > * **SPX vs XAU 0.89**: korelacja między dwiema zmiennymi objaśniającymi jest bardzo wysoka, podejrzenie **współliniowowści**, które zbadamy w późniejszej analizie.
 
-### Analiza statysyk opisowych:
+### 2. Badanie stacjonarności zmiennych i ich przygotowanie (logarytmiczne stopy zwrotu)
+Ceny aktywów finansowych z reguły są niestacjonarne. Sprawdźmy to za pomocą testu ADF. Hipoteza zerowa w teście ADF oznacza brak stacjonarności.
+```{r}
+adf.test(df$btc)
+kpss.test(df$btc)
+
+adf.test(df$usd)
+kpss.test(df$usd)
+
+adf.test(df$spx)
+kpss.test(df$spx)
+
+adf.test(df$xau)
+kpss.test(df$xau)
+```
+
+> **Wnioski:**
+>
+> Ceny Bitcoina i innych aktywów są niestacjonarne, ponieważ mają trendy (rosną w długim terminie). Budowanie modelu na takich danych prowadziłoby do błędnych wniosków. Dlatego lepszym rozwiązaniem będzie analiza stóp zwrotu, które badają codzienne zmiany cen. Stopy zwrotu są stacjonarne, dzięki czemu możemy zbadać, jak mocno te rynki na siebie wpływają.
+
+
 ``` {r}
-summary(df[, c("btc", "usd", "spx", "xau")])
+df_returns <- df %>%
+  arrange(Data) %>% # chronologiczne ustawienie danych
+  mutate(
+    r_btc = c(NA, diff(log(btc))),
+    r_usd = c(NA, diff(log(usd))),
+    r_spx = c(NA, diff(log(spx))),
+    r_xau = c(NA, diff(log(xau)))
+  ) %>%
+  na.omit() # usunięcie wiersza, który po diff() stał się NA 
+
+adf.test(df_returns$r_btc)
+adf.test(df_returns$r_usd)
+adf.test(df_returns$r_spx)
+adf.test(df_returns$r_xau)
+```
+
+> **Wnioski:**
+>
+> Dla wszystkich analizowanych zmiennych w postaci stóp zwrotu, test ADF pozwolił na odrzucenie hipotezy zerowej o niestacjonarności przy poziomie istotności p < 0,01. Szeregi są stacjonarne i umożliwiają dalszą estymację modelu."
+
+``` {r}
+n_obs <- nrow(df_returns)
+breakdown <- round(n_obs * 0.8) # 80% na naukę
+
+df_learn <- df_returns[1:breakdown, ]
+df_test <- df_returns[(breakdown + 1):n_obs, ]
+```
+
+### 3. Ponowna weryfukacja korelacji zmiennych na zbiorze uczącym.
+``` {r}
+cor_learn <- cor(df_learn[, c("r_btc", "r_usd", "r_spx", "r_xau")])
+cor_learn
 ```
 
 
+``` {r}
+# wektor korelacji Y z X (R0)
+r0 <- cor_learn[1, 2:4] 
+
+# macierz korelacji między samymi X (R)
+R <- cor_learn[2:4, 2:4]
+
+nazwy_X <- names(r0)
+n <- length(r0)
+
+# Funkcja licząca pojemność informacyjną H
+calc_H <- function(indices, r0, R) {
+  h_j <- sapply(indices, function(j) {
+    (r0[j]^2) / sum(abs(R[j, indices]))
+  })
+  return(sum(h_j))
+}
+
+# wszystkie możliwe kombinacje indeksów (1, 2, 3, 1:2, itd.)
+combos <- list()
+for (i in 1:n) {
+  combos <- c(combos, combn(1:n, i, simplify = FALSE))
+}
+
+results_hellwig <- data.frame(
+  Kombinacja = sapply(combos, function(x) paste(nazwy_X[x], collapse = " + ")),
+  H = sapply(combos, calc_H, r0 = r0, R = R)
+)
+
+arrange(results_hellwig, desc(H))
+
+results_hellwig
+
+# budowa modelu na podstawie najlepszej zmiennej wg Hellwiga czyli SPX
+model_final <- lm(r_btc ~ r_spx, data = df_learn)
+
+summary(model_final)
 
 
+# 1. Badanie normalności reszt (Punkt 5a)
+shapiro.test(residuals(model_final))
+
+# 2. Testowanie autokorelacji (Punkt 5b)
+dwtest(model_final)
+
+# 3. Badanie heteroskedastyczności (Punkt 5c)
+bptest(model_final)
+
+# 4. Stabilność postaci analitycznej (Punkt 5f)
+resettest(model_final)
+```
 
 ## Wzór opisujący BTC
 $$BTC_{price} = \beta_0 + \beta_1 \cdot USD_{index} + \beta_2 \cdot SPX + \beta_3 \cdot Gold + \epsilon$$
 
 ``` {r}
+# 1. Wyznaczamy prognozę na zbiorze testowym
+prognoza <- predict(model_final, newdata = df_test)
 
+# 2. Obliczamy błąd Ex Post (MAE lub RMSE)
+rzeczywiste <- df_test$r_btc
+bledy <- rzeczywiste - prognoza
+
+# Średni absolutny błąd prognozy
+MAE <- mean(abs(bledy))
+# Względny błąd prognozy
+MAPE <- mean(abs(bledy / rzeczywiste)) * 100 
+
+cat("Błąd MAE wynosi:", MAE)
+cat("Względny błąd MAPE wynosi:", MAPE, "%")
 ```
 
 
