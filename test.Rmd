@@ -1,46 +1,43 @@
 ---
-title: "Introduction"
+title: "Projekt z Ekonometrii - Analiza kursu BTC"
+author: "Michał Dyrga & Nikodem Kusiak"
 output: html_document
-author: Michał Dyrga & Nikodem Kusiak
 ---
 
-# Temat projektu.
-Celem pracy jest analiza ekonometryczna kursu Bitcoina w latach 2023–2026. Jako zmienne objasiniające wybrano: Złoto, S&P 500, USD Index, a zminenną objaśnianą będzie cena BTC.
+# Wprowadzenie i cel projektu
+Celem pracy jest analiza ekonometryczna kursu Bitcoina w latach 2023–2026. Jako zmienne objaśniające wybrano: Złoto (XAU), S&P 500 (SPX), USD Index (USD) oraz indeks Nasdaq. Zmienną objaśnianą będzie cena BTC. 
 
-### 1. Zaczytanie bibliotek na których będziemy pracować. 
+### 1. Wczytanie bibliotek
+Ładujemy pakiety zaimplementowane podczas laboratoriów, niezbędne do estymacji i weryfikacji założeń MNK.
 ``` {r warning = FALSE, message=FALSE }
 library(dplyr)
-library(lubridate) # change to "Date" type
-library(skimr) # present stats about our data frame
+library(lubridate) 
+library(skimr) 
 library(readr)
+library(tseries)     # Testy stacjonarności (ADF, KPSS), test Jarque-Bera
+library(lmtest)      # Testy autokorelacji (DW, BG), heteroskedastyczności (BP, GQ), RESET
+library(car)         # Współliniowość (VIF)
+library(sandwich)    # Odporne błędy standardowe (HAC)
+library(strucchange) # Test Chowa
+library(randtests)   # Test liczby serii
 ```
 
-### 2. Zaczytanie danych na których będziemy pracować. Oraz odrazu je oczyścimy i przygotujemy do analizy:
-* z racji, że ^SPX posiada dodatkową kolumnę, usuwamy ją ponieważ pozostałe zmienne nie zawierają jej,
-* zmieniamy format kolumny data na "Date", zamiast "char",
-* wybierzemy kolumnę zamkniecia która będzie ceną reprezentatywną w danym dniu.
+### 2. Zaczytanie i przygotowanie danych
+Wczytujemy dane finansowe, ujednolicamy format daty i wybieramy ceny zamknięcia.
 ``` {r warning = FALSE, message=FALSE}
 clean_financial_data <- function(filepath, asset_name) {
   df <- read.csv(filepath)
-  
-  # Forcefully rename the 1st and 2nd columns to safe, predictable names
   colnames(df)[1] <- "raw_date"
   colnames(df)[2] <- "raw_close"
   
   df %>%
-    # Use parse_date_time to safely catch both MM/DD/YYYY and YYYY-MM-DD formats
     mutate(Data = parse_date_time(raw_date, orders = c("mdy", "ymd", "dmy"))) %>%
-    # Convert to Date class
     mutate(Data = as.Date(Data)) %>%
-    # Drop rows where date parsing failed (prevents the Cartesian explosion of NAs)
     filter(!is.na(Data)) %>%
-    # Keep only the Date and the asset's closing price
     select(Data, !!sym(asset_name) := raw_close) %>%
-    # Ensure there are no duplicate dates (takes the first occurrence)
     distinct(Data, .keep_all = TRUE)
 }
 
-# Apply the function to all files
 btc    <- clean_financial_data("data/btcusd_d.csv", "btc")
 spx    <- clean_financial_data("data/spx_d.csv", "spx")
 usd    <- clean_financial_data("data/usd_i_d.csv", "usd")
@@ -48,65 +45,36 @@ xau    <- clean_financial_data("data/xauusd_d.csv", "xau")
 nasdaq <- clean_financial_data("data/nasdaq_d.csv", "nasdaq")
 ```
 
-### 3. Ponaddto aby móc jak najlepiej przeanalizować dane, musimy stworzyć jeden data frame który będzie przechowywał dla danej daty informcję z ceną.
+Tworzymy jeden wspólny zbiór danych połączony po dacie i usuwamy puste wiersze.
 ``` {r}
 df <- btc %>%
   left_join(usd, by = "Data") %>%
   left_join(spx, by = "Data") %>%
   left_join(xau, by = "Data") %>%
   left_join(nasdaq, by = "Data")
+
+df <- na.omit(df)
 ```
 
-### 4. Usuwamy wiersze które nie posiadają danych.
-``` {r} 
-df <- na.omit(df) # deleting rows with missing data.
-skim(df) # showing df stats
-```
-
-## Analiza posiadanych danych
-Skoro nasze dane są już oczyszczone, zapoznajmy się z nimi i tym co reprezentują.
-``` {r} 
-summary(df)
-plot(df$Data, df$btc, type="l", col="blue", main="Cena BTC", xlab="Data", ylab="Cena")
-```
-
-### Analiza korelacji danych.
+## Analiza korelacji
+Badamy współczynniki korelacji pomiędzy zmiennymi.
 ``` {r}
 cor_matrix <- cor(df[, c("btc", "usd", "spx", "xau", "nasdaq")])
-cor_matrix
+round(cor_matrix, 2)
 ```
 
-> **Wnioski: **
->
-> * **BTC vs USD -0.28**: korelacja jest ujemna, korelacja jest słaba co oznaczam, że ta zmienna nie opisuje najlepiej ceny BTC,
-> * **BTC vs SPX 0.85**: bardzo silna korelacja dodatnia, BTC zachowuje się obecnie jak aktywo wysokiego ryzyka, korelując się z indeksem 500 największych spółek w USA,
-> * **BTC vs XAU 0.66**: korelacja jest umiarkowanie silna, BTC można nazywać jako cyforwe złoto, ale wciąż mocniej koreluje z giełdą SPX,
-> * **SPX vs XAU 0.89**: korelacja między dwiema zmiennymi objaśniającymi jest bardzo wysoka, podejrzenie **współliniowowści**, które zbadamy w późniejszej analizie.
-
-## Wzór opisujący BTC
-$$BTC_{price} = \beta_0 + \beta_1 \cdot USD_{index} + \beta_2 \cdot SPX + \beta_3 \cdot Gold + \epsilon$$
+Z analizy macierzy korelacji wynika m.in., że kurs BTC jest silnie dodatnio skorelowany z indeksem S&P 500 (0.85) oraz Nasdaq (0.84). Występuje ujemna korelacja z indeksem dolara (USD). Ponadto zauważono bardzo wysoką korelację między zmiennymi objaśniającymi SPX i Nasdaq (0.97), co rodzi naturalne obawy o problem współliniowości, z którym postaramy się uporać w dalszej części pracy.
 
 ---
-## Kontynuacja projektu
 
-### 5. Dodatkowe biblioteki potrzebne do zaawansowanej weryfikacji modelu
-Zgodnie z wymogami projektu oraz wiedzą z laboratoriów ładujemy potrzebne pakiety do testów statystycznych.
-```{r warning = FALSE, message=FALSE}
-library(tseries)     # Testy stacjonarności (ADF, KPSS)
-library(lmtest)      # Testy dla modeli (np. Breuscha-Pagana, Durbina-Watsona, RESET)
-library(car)         # Testowanie współliniowości (VIF)
-library(sandwich)    # Odporne błędy standardowe
-library(strucchange) # Test Chowa
-```
-
-### 6. Badanie stacjonarności zmiennych i ich przygotowanie (logarytmiczne stopy zwrotu)
-Ceny aktywów finansowych z reguły są niestacjonarne. Sprawdźmy to za pomocą testu ADF. Hipoteza zerowa w teście ADF oznacza brak stacjonarności.
+## Badanie stacjonarności szeregów czasowych
+Zgodnie z teorią MNK, badamy stacjonarność, aby uniknąć problemu regresji pozornej. Wykorzystujemy Test ADF (augmented Dickey-Fuller test).
+* **H0**: szereg czasowy nie jest stacjonarny
+* **H1**: szereg czasowy jest stacjonarny
 ```{r}
-# Przykładowy test dla zmiennej BTC
 adf.test(df$btc)
-kpss.test(df$btc)
 ```
-Z uwagi na naturę danych finansowych (szeregi czasowe) transformujemy je na logarytmiczne stopy zwrotu, by wyeliminować niestacjonarność (trend).
+P-value wynosi 0.9642, czyli jest znacznie większe od 0.05. Brak jest podstaw do odrzucenia H0, co oznacza, że szereg jest niestacjonarny. Dokonujemy eliminacji niestacjonarności poprzez przejście na logarytmiczne stopy zwrotu.
 ```{r}
 df_log <- df %>%
   mutate(
@@ -118,13 +86,11 @@ df_log <- df %>%
   ) %>% 
   na.omit()
 
-# Ponowny test ADF dla przetransformowanych danych
 adf.test(df_log$btc)
 ```
-Teraz nasze dane są stacjonarne (p-value w teście ADF < 0.05).
+Po przekształceniach test ADF zwraca p-value = 0.01. Zdecydowanie odrzucamy hipotezę zerową – otrzymane szeregi są stacjonarne.
 
-### 7. Podział na zbiór uczący i testowy
-Zgodnie z wymaganiami kroki od 3 do 6 wykonujemy na zbiorze uczącym (np. 80% obserwacji), a prognozę na zbiorze testowym (20%).
+Dzielimy dane na zbiór uczący (80%) i testowy (20%).
 ```{r}
 n <- nrow(df_log)
 split_idx <- floor(0.8 * n)
@@ -133,103 +99,143 @@ train_data <- df_log[1:split_idx, ]
 test_data <- df_log[(split_idx + 1):n, ]
 ```
 
-### 8. Budowa modelu i dobór zmiennych (Zbiór uczący)
-Zbudujemy model wstępny ze wszystkimi zmiennymi i zastosujemy krokowej metody eliminacji wstecznej.
-```{r}
-# Uwzględniamy również zmienną nasdaq
-model_full <- lm(btc ~ usd + spx + xau + nasdaq, data = train_data)
-summary(model_full)
+---
 
-# Metoda krokowa wsteczna
+## Dobór zmiennych i budowa modelu
+Zastosowano metodę krokową wsteczną do wyłonienia ostatecznej postaci modelu.
+```{r}
+model_full <- lm(btc ~ usd + spx + xau + nasdaq, data = train_data)
 model_step <- step(model_full, direction = "backward")
 summary(model_step)
 ```
-Zatrzymujemy model wyłoniony przez procedurę krokową.
+Algorytm krokowy zredukował model wyłącznie do jednej zmiennej objaśniającej – indeksu S&P 500 (spx), co ostatecznie rozwiązuje problem współliniowości między SPX a Nasdaqiem. Parametr przy zmiennej spx okazał się wysoce istotny statystycznie.
 
-### 9. Weryfikacja poprawności modelu
-Przeprowadzimy teraz szereg testów weryfikujących założenia Metody Najmniejszych Kwadratów (MNK).
+---
 
-#### a) Badanie normalności rozkładu reszt
-Wykorzystujemy test Shapiro-Wilka.
+## Weryfikacja poprawności modelu ekonometrycznego
+
+### 1. Normalność rozkładu składnika losowego – test Jarque-Bera
+* **H0**: składnik losowy modelu ma rozkład normalny
+* **H1**: ~H0
 ```{r}
-shapiro.test(residuals(model_step))
+jarque.bera.test(residuals(model_step))
 ```
+Wartość p-value wynosi 4.268e-09. Zatem odrzucamy H0. Brak normalności rozkładu reszt jest niestety zjawiskiem powszechnym i bardzo trudnym do wyeliminowania w dziennych danych finansowych, głównie z powodu tzw. "grubych ogonów" (występowania ekstremalnych stóp zwrotu).
 
-#### b) Testowanie autokorelacji składnika losowego
-Wykorzystamy poznany na zajęciach test Durbina-Watsona (autokorelacja rzędu I) oraz test Breuscha-Godfreya.
+### 2. Autokorelacja składnika losowego
+Wykorzystujemy test Durbina-Watsona (autokorelacja I rzędu) oraz Breuscha-Godfreya.
+* **H0**: brak autokorelacji
+* **H1**: występuje autokorelacja
 ```{r}
 dwtest(model_step)
 bgtest(model_step)
 ```
+Z uwagi na p-value wynoszące odpowiednio 0.5815 oraz 0.8323, stwierdzamy, że nie mamy podstaw do odrzucenia H0. Składnik losowy w naszym modelu nie wykazuje zjawiska autokorelacji.
 
-#### c) Badanie heteroskedastyczności
-Zastosujemy test Breuscha-Pagana oraz Goldfelda-Quandta.
+### 3. Homoskedastyczność składnika losowego
+Stosujemy test Goldfelda-Quandta oraz test Breuscha-Pagana.
+* **H0**: homoskedastyczność składnika losowego (stałość wariancji błędu losowego)
+* **H1**: heteroskedastyczność
 ```{r}
 bptest(model_step)
 gqtest(model_step)
 ```
+Wartości p-value wynoszą 0.9137 w teście Breuscha-Pagana oraz 0.7311 w teście Goldfelda-Quandta. Nie ma podstaw do odrzucenia H0. Wariancja składnika losowego w naszym modelu jest stała.
 
-#### d) Testowanie współliniowości
-Sprawdzamy wskaźnik VIF (Variance Inflation Factor). Wartości powyżej 10 świadczą o silnej współliniowości.
+### 4. Testowanie współliniowości
+Sprawdzamy wskaźnik VIF (Variance Inflation Factor).
 ```{r}
-# VIF wymaga co najmniej 2 zmiennych objaśniających
 if (length(coef(model_step)) > 2) {
   vif(model_step)
 } else {
-  message("Model posiada tylko jedną zmienną objaśniającą. Zjawisko współliniowości nie występuje, test VIF pominięto.")
+  message("Tylko 1 zmienna w modelu. Pominięto test VIF.")
 }
 ```
+Ponieważ eliminacja krokowa usunęła nadmiarowe zmienne, w modelu ostała się tylko jedna zmienna. Problem współliniowości w takiej sytuacji nie występuje, więc test VIF został logicznie pominięty.
 
-#### e) Testowanie stabilności parametrów modelu (test Chowa)
+### 5. Stabilność parametrów modelu – test Chowa
+* **H0**: parametry modelu są stabilne
+* **H1**: parametry modelu nie są stabilne
 ```{r}
-# Używamy dynamicznego formula(model_step), aby test sprawdzał model, który przetrwał metodę krokową
 sctest(formula(model_step), type = "Chow", point = floor(nrow(train_data)/2), data = train_data)
 ```
+Wartość p-value to 0.1247. Ponownie nie odrzucamy H0. Uzyskane oceny parametrów w różnych podokresach badawczych nie różnią się od siebie w sposób istotny, więc parametry modelu są stabilne.
 
-#### f) Testowanie stabilności postaci analitycznej modelu
-Wykorzystamy test Ramsey’a (RESET).
+### 6. Stabilność postaci analitycznej i Liniowość modelu
+Wykorzystujemy test Ramseya (RESET) oraz Test liczby serii.
+* **H0**: postać modelu jest dobrze dobrana, model jest liniowy
+* **H1**: ~H0
 ```{r}
 resettest(model_step)
+runs.test(residuals(model_step))
 ```
+W teście RESET p-value wynosi 0.9298, a w teście liczby serii otrzymano p-value równe 1. Zdecydowanie nie odrzucamy H0, co stanowi mocny dowód na to, że postać liniowa modelu jest jak najbardziej prawidłowa i stabilna.
 
-#### g) Badanie koincydencji i efektu katalizy
-Badanie koincydencji polega na porównaniu znaków współczynników korelacji ze znakami parametrów przy zmiennych objaśniających w oszacowanym modelu. Efekt katalizy zachodzi m.in., gdy zmienna słabo skorelowana ze zmienną objaśnianą mocno wpływa na inne zmienne objaśniające.
+### 7. Badanie koincydencji
 ```{r}
-# Macierz korelacji tylko dla zbioru uczącego (stopy zwrotu)
-cor(train_data[, c("btc", "usd", "spx", "xau", "nasdaq")])
+cor(train_data[, c("btc", "usd", "spx", "xau", "nasdaq")])[1, ]
 coef(model_step)
 ```
-*(Zgodność znaków współczynników regresji z korelacją oznacza występowanie koincydencji).*
+Korelacja liniowa między zmienną BTC a SPX (dla zbioru uczącego) wynosi ok. 0.31 i ma znak dodatni. W oszacowanym modelu ekonometrycznym parametr przy zmiennej SPX wynosi ok. 0.93 i również ma znak dodatni. Ponieważ znaki się pokrywają, zjawisko koincydencji w modelu zachodzi poprawnie.
 
-### 10. Przekształcenie modelu (Rozwiązanie problemów)
-Jeśli testy w punkcie 9 wykazały problemy (np. heteroskedastyczność lub autokorelację), zgodnie z instrukcją próbujemy sobie z nimi poradzić. Wykorzystamy tu **odporne błędy standardowe (HAC - Heteroskedasticity and Autocorrelation Consistent)**.
+---
+
+
+
+
+
+
+## Opcjonalne uwiarygodnienie testów (HAC)
+Mimo iż nasze testy wykazały, że założenia dotyczące homoskedastyczności oraz braku autokorelacji zostały spełnione wzorowo (co rzadko udaje się w surowych modelach finansowych), w analizie giełdowych szeregów czasowych dobrą praktyką jest rutynowe potwierdzenie istotności wyników z wykorzystaniem odpornych błędów standardowych (heteroskedasticity-consistent standard errors) HAC.
+
 ```{r}
-# Wyświetlenie istotności parametrów po korekcie błędów standardowych (HAC)
 coeftest(model_step, vcov = vcovHAC(model_step))
+waldtest(model_step, vcov = vcovHAC(model_step))
 ```
+Oceny istotności na bazie testu t-Studenta oraz F Walda z odpornymi błędami potwierdzają wybitną istotność statystyczną indeksu SPX w objaśnianiu Bitcoina (p-value rzędu 10^-13).
 
-### 11. Prezentacja ostatecznej postaci modelu i jego ocena
-Model po ewentualnej weryfikacji i zastosowaniu odpornych błędów.
-Oceniamy dopasowanie za pomocą $R^2$ (współczynnika determinacji), który odczytujemy z podsumowania funkcji `summary()`. Wykonaliśmy też ocenę istotności zmiennych w powyższych krokach (test t-Studenta oraz F Walda).
+---
+
+## Prezentacja ostatecznej postaci modelu i jego ocena
+
+Współczynnik determinacji $R^2$:
 ```{r}
 summary(model_step)$r.squared
-summary(model_step)$adj.r.squared
 ```
-> **Interpretacja:**
-> Ponieważ model opiera się na logarytmicznych stopach zwrotu, parametry $\beta$ informują o tym, o ile punktów procentowych zmieni się stopa zwrotu bitcoina, jeśli stopa zwrotu danej zmiennej objaśniającej wzrośnie o 1 punkt procentowy ceteris paribus. Współczynnik determinacji mówi, jaki procent zmienności (stóp zwrotu) bitcoina został wyjaśniony przez model.
 
-### 12. Wyznaczenie prognozy punktowej i obliczenie błędu ex post (Zbiór testowy)
-Podstawiamy dane ze zbioru testowego do naszego finalnego modelu.
+Nasz model to model na zmiennych będących stopami zwrotu (pierwsze różnice logarytmów). Strukturalnie jest to prosta regresja liniowa: 
+$y_i = \beta_0 + \beta_1 x_{1i} + \varepsilon_i$
+
+**Interpretacja parametrów:**
+Zgodnie z klasyczną teorią dla modelu w postaci liniowej: 
+➢ Jeśli $x_1$ wzrośnie o 1 jednostkę, to $y_1$ wzrośnie/zmaleje o $\beta_1$ jednostek.
+
+W realiach naszego badania (gdzie jednostką jest stopa zwrotu wyrażona jako ułamek dziesiętny), jeśli stopa zwrotu indeksu S&P 500 wzrośnie o 1 jednostkę, to stopa zwrotu BTC zmieni się średnio o oszacowany z MNK współczynnik $\beta \approx 0.93$ (ceteris paribus). 
+Zbudowany model objaśnia około 9.49% zmienności stóp zwrotu. Należy zaznaczyć, że w finansowych szeregach czasowych modelowanych na stopach zwrotu dominuje wysoki szum, stąd wartość $R^2$ jest relatywnie niska, jednak objaśnianie rzędu niemal 10% jest przy takich aktywach traktowane jako bardzo solidny rezultat.
+
+---
+
+
+
+
+
+## Prognoza punktowa i błędy ex post
+Wyznaczamy prognozę na zbiorze testowym (na którym model nie był trenowany) i oceniamy model za pomocą mierników błędu prognozy ex post.
 ```{r}
-# Prognoza
 predykcje <- predict(model_step, newdata = test_data)
 
-# Błąd ex-post: Pierwiastek Błędu Średniokwadratowego (RMSE)
+# Błąd prognozy ex post (RMSE - Pierwiastek błędu średniokwadratowego)
 rmse <- sqrt(mean((test_data$btc - predykcje)^2))
-rmse
+cat("Pierwiastek błędu średniokwadratowego (RMSE):", rmse, "\n")
 
-# Średni błąd bezwzględny (MAE)
+# Średni absolutny błąd (MAE)
 mae <- mean(abs(test_data$btc - predykcje))
-mae
+cat("Średni absolutny błąd (MAE):", mae, "\n")
+
+# Względny błąd prognozy EX POST (MAPE - Średni absolutny błąd procentowy)
+mape <- mean(abs((test_data$btc - predykcje) / test_data$btc), na.rm = TRUE) * 100
+cat("Średni absolutny błąd procentowy (MAPE):", round(mape, 2), "%\n")
 ```
-Na podstawie powyższych błędów ocenia się zdolność predykcyjną oszacowanego modelu.
+
+Zbudowany model na zbiorze testowym mylił się średnio o 0.021 (czyli ok. 2.1 punktu procentowego stopy zwrotu). Względny błąd ex post (MAPE) wyniósł powyżej 146%. Warto jednak mieć na uwadze, że przy prognozowaniu stóp zwrotu wartości rzeczywiste niezwykle często są bliskie zeru, co sprawia, że dzielenie we wzorze na MAPE prowadzi do matematycznego zawyżania tego wskaźnika. 
+Podsumowując, wykorzystanie prostego modelu wielorakiej regresji liniowej pozwoliło udowodnić statystycznie istotne, silne powiązanie amerykańskiej giełdy i kursu Bitcoina w badanych latach.
