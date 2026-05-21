@@ -19,7 +19,6 @@ library(car)         # Testowanie współliniowości (VIF)
 library(sandwich)    # Odporne błędy standardowe
 library(strucchange) # Test Chowa
 library(randtests)   # Test liczby serii
-library(utils)       # ??????????
 ```
 
 ### 2. Zaczytanie danych na których będziemy pracować. Oraz odrazu je oczyścimy i przygotujemy do analizy:
@@ -143,32 +142,30 @@ cor_learn
 ## Dobór zmiennych i budowa modelu
 Zastosowano metodę krokową wsteczną do wybrania ostatecznej postaci modelu.
 ```{r}
-model_full <- lm(btc ~ usd + spx + xau + nasdaq, data = train_data)
+model_full <- lm(r_btc ~ r_usd + r_spx + r_xau, data = df_learn)
 model_step <- step(model_full, direction = "backward")
 summary(model_step)
 ```
 
-> Algorytm krokowy zredukował model wyłącznie do jednej zmiennej objaśniającej – indeksu S&P 500 (spx), co ostatecznie rozwiązuje problem współliniowości między SPX a Nasdaqiem. Parametr przy zmiennej spx okazał się wysoce istotny statystycznie.
+> Algorytm krokowy zredukował model wyłącznie do jednej zmiennej objaśniającej – r_spx. Zmienne r_usd i r_xau zostały odrzucone, bo na stopach zwrotu praktycznie nie korelują z r_btc (odpowiednio -0.018 i 0.051). Co ciekawe, na stopach zwrotu znika też silna korelacja SPX i XAU widoczna na surowych wartosciach (z 0.90 do 0.07) — była ona pozorna i wynikała ze wspólnego trendu w długim okresie. Parametr przy zmiennej r_spx okazał się wysoce istotny statystycznie (p-value 1.18e-15).
 
-
-# TU ZACZYNA SIĘ TWOJA CZĘŚĆ (DO USUNIĘCIA LINIJKA)
-
----
 
 ## Weryfikacja poprawności modelu ekonometrycznego
 
+Mając już oszacowany model trzeba sprawdzić czy są spełnione wszystkie założenia MNK.
+
 ### 1. Normalność rozkładu składnika losowego – test Jarque-Bera
-* **H0**: składnik losowy modelu ma rozkład normalny
-* **H1**: ~H0
+* **H0**: składnik losowy ma rozkład normalny
+* **H1**: nie ma rozkładu normalnego
 ```{r}
 jarque.bera.test(residuals(model_step))
 ```
 
-> **Wnioski:** 
-> Wartość p-value wynosi 4.268e-09. Zatem odrzucamy H0. Brak normalności rozkładu reszt jest niestety zjawiskiem powszechnym i bardzo trudnym do wyeliminowania w dziennych danych finansowych, głównie z powodu tzw. "grubych ogonów" (występowania ekstremalnych stóp zwrotu).
+> **Wnioski:**
+> P-value bardzo małe < 2.2e-16, czyli odrzucamy H0. Reszty nie mają rozkładu normalnego. Nie jest to duży problem, bo próba jest duża i estymator MNK pozostaje zgodny.
 
 ### 2. Autokorelacja składnika losowego
-Wykorzystujemy test Durbina-Watsona (autokorelacja I rzędu) oraz Breuscha-Godfreya.
+Stosujemy dwa testy: Durbina-Watsona (autokorelacja I rzędu) oraz Breuscha-Godfreya (wyższe rzędy).
 * **H0**: brak autokorelacji
 * **H1**: występuje autokorelacja
 ```{r}
@@ -176,112 +173,114 @@ dwtest(model_step)
 bgtest(model_step)
 ```
 
-> **Wnioski:** 
-> Z uwagi na p-value wynoszące odpowiednio 0.5815 oraz 0.8323, stwierdzamy, że nie mamy podstaw do odrzucenia H0. Składnik losowy w naszym modelu nie wykazuje zjawiska autokorelacji.
+> **Wnioski:**
+> P-value 0.8164 i 0.3606, nie ma podstaw do odrzucenia H0. Autokorelacji w resztach nie ma, więc jedno z głównych założeń MNK jest spełnione - macierz wariancji-kowariancji składników losowych jest diagonalna.
 
 ### 3. Homoskedastyczność składnika losowego
-Stosujemy test Goldfelda-Quandta oraz test Breuscha-Pagana.
-* **H0**: homoskedastyczność składnika losowego (stałość wariancji błędu losowego)
+Test Breuscha-Pagana oraz Goldfelda-Quandta.
+* **H0**: wariancja składnika losowego jest stała (homoskedastyczność)
 * **H1**: heteroskedastyczność
 ```{r}
 bptest(model_step)
 gqtest(model_step)
 ```
 
-> **Wnioski:** 
-> Wartości p-value wynoszą 0.9137 w teście Breuscha-Pagana oraz 0.7311 w teście Goldfelda-Quandta. Nie ma podstaw do odrzucenia H0. Wariancja składnika losowego w naszym modelu jest stała.
+> **Wnioski:**
+> Wyniki testów są sprzeczne - BP zwrócił p-value 0.01625 (odrzucamy H0), a GQ p-value 0.8734 (H0 zostaje). BP wychwytuje ogólniejszą zależność wariancji od zmiennej objaśniającej, GQ tylko monotoniczną. Dla bezpieczeństwa zastosujemy później odporne błędy standardowe HAC.
 
-### 4. Testowanie współliniowości
-Sprawdzamy wskaźnik VIF (Variance Inflation Factor).
+### 4. Współliniowość
+Współczynnik VIF.
 ```{r}
 if (length(coef(model_step)) > 2) {
   vif(model_step)
 } else {
-  message("Tylko 1 zmienna w modelu. Pominięto test VIF.")
+  message("W modelu została tylko 1 zmienna objaśniająca, więc VIF nie ma sensu.")
 }
 ```
 
-> **Wnioski:** 
-> Ponieważ eliminacja krokowa usunęła nadmiarowe zmienne, w modelu ostała się tylko jedna zmienna. Problem współliniowości w takiej sytuacji nie występuje, więc test VIF został logicznie pominięty.
+> **Wnioski:**
+> Po eliminacji krokowej w modelu została jedna zmienna, więc nie ma jak obliczyć współczynnika VIF (potrzeba minimum dwóch zmiennych objaśniających).
 
-### 5. Stabilność parametrów modelu – test Chowa
-* **H0**: parametry modelu są stabilne
-* **H1**: parametry modelu nie są stabilne
+### 5. Stabilność parametrów – test Chowa
+* **H0**: parametry modelu są stabilne w czasie
+* **H1**: parametry nie są stabilne
 ```{r}
-sctest(formula(model_step), type = "Chow", point = floor(nrow(train_data)/2), data = train_data)
+sctest(formula(model_step), type = "Chow", point = floor(nrow(df_learn)/2), data = df_learn)
 ```
 
-> **Wnioski:** 
-> Wartość p-value to 0.1247. Ponownie nie odrzucamy H0. Uzyskane oceny parametrów w różnych podokresach badawczych nie różnią się od siebie w sposób istotny, więc parametry modelu są stabilne.
+> **Wnioski:**
+> P-value 0.3836, znowu H0 nie odrzucamy. Parametry są stabilne między pierwszą a drugą połową próby uczącej.
 
-### 6. Stabilność postaci analitycznej i Liniowość modelu
-Wykorzystujemy test Ramseya (RESET) oraz Test liczby serii.
+### 6. Postać analityczna i liniowość – test RESET (Ramseya) i test liczby serii
 * **H0**: postać modelu jest dobrze dobrana, model jest liniowy
-* **H1**: ~H0
+* **H1**: model nie jest liniowy
 ```{r}
 resettest(model_step)
 runs.test(residuals(model_step))
 ```
 
-> **Wnioski:** 
-> W teście RESET p-value wynosi 0.9298, a w teście liczby serii otrzymano p-value równe 1. Zdecydowanie nie odrzucamy H0, co stanowi mocny dowód na to, że postać liniowa modelu jest jak najbardziej prawidłowa i stabilna.
+> **Wnioski:**
+> RESET podał wynik p-value 0.07445, test liczby serii 0.3268 - w obu nie odrzucamy H0 (przy α = 0.05), liniowa postać modelu jest poprawna.
 
-
-### 7. Badanie koincydencji
+### 7. Koincydencja
+Patrzymy czy znak korelacji BTC ze SPX z macierzy zgadza się ze znakiem oszacowanego parametru w modelu.
 ```{r}
-cor(train_data[, c("btc", "usd", "spx", "xau", "nasdaq")])[1, ]
+cor(df_learn$r_btc, df_learn$r_spx)
 coef(model_step)
 ```
 > **Wnioski:**
-> Korelacja liniowa między zmienną BTC a SPX (dla zbioru uczącego) wynosi ok. 0.31 i ma znak dodatni. W oszacowanym modelu ekonometrycznym parametr przy zmiennej SPX wynosi ok. 0.93 i również ma znak dodatni. Ponieważ znaki się pokrywają, zjawisko koincydencji w modelu zachodzi poprawnie.
+> Korelacja BTC i SPX dodatnia (0.319), parametr przy r_spx też dodatni (0.969). Znaki się zgadzają, koincydencja spełniona.
 
 ---
 
 ## Uwiarygodnienie testów (HAC)
-Mimo iż nasze testy wykazały, że założenia dotyczące homoskedastyczności oraz braku autokorelacji zostały spełnione, w analizie giełdowych szeregów czasowych warto potwierdzić istotność wyników z wykorzystaniem odpornych błędów standardowych (heteroskedasticity-consistent standard errors) HAC.
+
+Wyniki testów heteroskedastyczności są sprzeczne, dla pewności sprawdziliśmy istotność zmiennej również przy użyciu odpornych błędów standardowych HAC.
 
 ```{r}
 coeftest(model_step, vcov = vcovHAC(model_step))
 waldtest(model_step, vcov = vcovHAC(model_step))
 ```
-Oceny istotności na bazie testu t-Studenta oraz F Walda z odpornymi błędami potwierdzają wybitną istotność statystyczną indeksu SPX w objaśnianiu Bitcoina (p-value rzędu 10^-13).
+
+P-value rzędu 10^-9 - parametr przy r_spx jest istotny nawet przy odpornych błędach. Wnioski się potwierdzają.
 
 ---
 
-## Prezentacja ostatecznej postaci modelu i jego ocena
+## Ostateczna postać modelu i jego ocena
 
 Współczynnik determinacji $R^2$:
 ```{r}
-summary(model_step)$r.squared 
+summary(model_step)$r.squared
 ```
 
-Nasz model to model na zmiennych będących stopami zwrotu (pierwsze różnice logarytmów). Strukturalnie jest to prosta regresja liniowa: 
-$y_i = \beta_0 + \beta_1 x_{1i} + \varepsilon_i$
+Model jest oszacowany na stopach zwrotu (logarytmiczne pierwsze różnice), więc jest to prosta regresja liniowa:
+$$r\_btc_i = \beta_0 + \beta_1 \cdot r\_spx_i + \varepsilon_i$$
 
-**Interpretacja parametrów:**
-Zgodnie z klasyczną teorią dla modelu w postaci liniowej: 
-> Jeśli $x_1$ wzrośnie o 1 jednostkę, to $y_1$ wzrośnie/zmaleje o $\beta_1$ jednostek.
+**Interpretacja parametru przy r_spx (ok. 0.97):**
+Jeśli stopa zwrotu SPX wzrośnie o 1 jednostkę (tj. o 1 p.p.), to stopa zwrotu BTC wzrośnie średnio o 0.97 jednostki, ceteris paribus. W praktyce: jak amerykańska giełda rośnie o 1%, to BTC rośnie średnio o ok. 0.97%.
 
-W realiach naszego badania (gdzie jednostką jest stopa zwrotu wyrażona jako ułamek dziesiętny), jeśli stopa zwrotu indeksu S&P 500 wzrośnie o 1 jednostkę, to stopa zwrotu BTC zmieni się średnio o oszacowany z MNK współczynnik $\beta \approx 0.93$ (ceteris paribus). 
-Zbudowany model objaśnia około 9.49% zmienności stóp zwrotu. Należy zaznaczyć, że w finansowych szeregach czasowych modelowanych na stopach zwrotu dominuje wysoki szum, stąd wartość $R^2$ jest relatywnie niska, jednak objaśnianie rzędu niemal 10% jest przy takich aktywach traktowane jako bardzo solidny rezultat.
+R^2 = 0.1016, czyli model wyjaśnia ok. 10.2% zmienności stóp zwrotu BTC. Na pierwszy rzut oka to mało, ale na dziennych danych z rynku to całkiem dobrze - ruchy cen są w dużej części losowe i nawet zaawansowane modele rzadko schodzą wysoko.
 
 ---
 
-``` {r}
-predykcje <- predict(model_step, newdata = test_data)
+## Prognoza na zbiorze testowym
 
-# Błąd prognozy ex post (RMSE - Pierwiastek błędu średniokwadratowego)
-rmse <- sqrt(mean((test_data$btc - predykcje)^2))
-cat("Pierwiastek błędu średniokwadratowego (RMSE):", rmse, "\n")
+```{r}
+predykcje <- predict(model_step, newdata = df_test)
 
-# Średni absolutny błąd (MAE)
-mae <- mean(abs(test_data$btc - predykcje))
-cat("Średni absolutny błąd (MAE):", mae, "\n")
+# RMSE – pierwiastek błędu średniokwadratowego
+rmse <- sqrt(mean((df_test$r_btc - predykcje)^2))
+cat("RMSE:", rmse, "\n")
 
-# Względny błąd prognozy EX POST (MAPE - Średni absolutny błąd procentowy)
-mape <- mean(abs((test_data$btc - predykcje) / test_data$btc), na.rm = TRUE) * 100
-cat("Średni absolutny błąd procentowy (MAPE):", round(mape, 2), "%\n")
+# MAE – średni absolutny błąd
+mae <- mean(abs(df_test$r_btc - predykcje))
+cat("MAE:", mae, "\n")
+
+# MAPE – średni absolutny błąd procentowy
+mape <- mean(abs((df_test$r_btc - predykcje) / df_test$r_btc), na.rm = TRUE) * 100
+cat("MAPE:", round(mape, 2), "%\n")
 ```
 
-Zbudowany model na zbiorze testowym mylił się średnio o 0.021 (czyli ok. 2.1 punktu procentowego stopy zwrotu). Względny błąd ex post (MAPE) wyniósł powyżej 146%. Warto jednak mieć na uwadze, że przy prognozowaniu stóp zwrotu wartości rzeczywiste niezwykle często są bliskie zeru, co sprawia, że dzielenie we wzorze na MAPE prowadzi do matematycznego zawyżania tego wskaźnika. 
-Podsumowując, wykorzystanie prostego modelu wielorakiej regresji liniowej pozwoliło udowodnić statystycznie istotne, silne powiązanie amerykańskiej giełdy i kursu Bitcoina w badanych latach.
+Na zbiorze testowym RMSE wyszło ok. 0.026, czyli średnio mylimy się o ok. 2.6 p.p. stopy zwrotu. MAPE wyszło 123.9%, ale tę miarę trzeba brać z dystansem - stopy zwrotu często krążą wokół zera, a kiedy dzielimy przez liczby bliskie zera to MAPE drastycznie wzrasta. Dlatego sensowniejsze są tu RMSE i MAE.
+
+Podsumowując, nawet tak prosty model regresji liniowej z jedną zmienną pokazał istotny, dodatni związek między indeksem SPX a kursem BTC. W badanym okresie Bitcoin zachowywał się raczej jak aktywo wysokiego ryzyka skorelowane z giełdą amerykańską niż jak "cyfrowe złoto".
