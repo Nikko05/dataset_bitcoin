@@ -1,11 +1,26 @@
 ---
-title: "Introduction"
-output: html_document
+title: "Analiza ekonometryczna czynników determinujących kurs Bitcoina w latach 2023–2026."
 author: Michał Dyrga & Nikodem Kusiak
+output: 
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    latex_engine: xelatex
 ---
 
-# Temat projektu.
-Celem pracy jest analiza ekonometryczna kursu Bitcoina w latach 2023–2026. Jako zmienne objasiniające wybrano: Złoto, S&P 500, USD Index, a zminenną objaśnianą będzie cena BTC.
+# Opis tematu.
+Gwałtowny rozwój rynków cyfrowych w ostatniej dekadzie wywołał szeroką dyskusję na temat statusu ekonomicznego kryptowaluty Bitcoin (BTC). Z jednej strony, ze względu na ograniczoną podaż i zdecentralizowaną naturę, Bitcoin określa się jako „cyfrowe złoto” i jest traktowany jako bezpieczna przystań w okresach niepewności rynkowej. Jednak istineje wysoka zmienność oraz napływ kapitału instytucjonalnego sprawiają, że wielu inwestorów klasyfikuje go jako spekulacyjne aktywo technologiczne o wysokim współczynniku beta.
+
+Projekt ma na celu identyfikację oraz ilościową ocenę siły powiązań kursu Bitcoina z tradycyjnymi aktywami w latach 2023–2026. Okres ten charakteryzował się istotnymi zmianami w polityce monetarnej banków centralnych (w tym Rezerwy Federalnej USA), napływem kapitału na skutek zatwierdzenia spotowych funduszy ETF na Bitcoinie oraz strukturalnym procesem halvingu w 2024 roku.
+
+Jako zmienne objaśniające do modelu ekonometrycznego wybrano trzy kluczowe indykatory makroekonomiczne:
+
+* **S&P 500 (spx)** – wskaźnik, który ukazuje, jak radzi sobie 500 największych firm w USA,
+* **Złoto (xau)** – reprezentujące rynek tradycyjnych surowców i bezpiecznych przystani,
+* **USD Index (usd)** – odzwierciedlający siłę światowej waluty rezerwowej i globalną płynność.
+
+Dla dalszej analizy przyjmujemy poziom istotności $\alpha = 0,05$ (5%).
 
 ### 1. Zaczytanie bibliotek na których będziemy pracować. 
 ``` {r warning = FALSE, message=FALSE }
@@ -22,9 +37,11 @@ library(randtests)   # Test liczby serii
 ```
 
 ### 2. Zaczytanie danych na których będziemy pracować. Oraz odrazu je oczyścimy i przygotujemy do analizy:
-* z racji, że ^SPX posiada dodatkową kolumnę, usuwamy ją ponieważ pozostałe zmienne nie zawierają jej,
-* zmieniamy format kolumny data na "Date", zamiast "char",
-* wybierzemy kolumnę zamkniecia która będzie ceną reprezentatywną w danym dniu.
+
+* z racji, że **S&P 500** posiada dodatkową kolumnę, usuwamy ją ponieważ pozostałe zmienne jej nie zawierają,
+* zmieniamy format kolumny **data** na *"Date"*, zamiast *"char"*,
+* wybierzemy **kolumnę zamkniecia** która będzie *ceną reprezentatywną* w danym dniu.
+
 ``` {r}
 btc <- read.csv("data/btcusd_d.csv") %>% mutate(Data = ymd(Data)) %>% select(Data, btc = Zamkniecie)
 spx <- read.csv("data/spx_d.csv") %>% mutate(Data = ymd(Data)) %>% select(Data, spx = Zamkniecie)
@@ -32,7 +49,8 @@ usd <- read.csv("data/usd_i_d.csv") %>% mutate(Data = ymd(Data)) %>% select(Data
 xau <- read.csv("data/xauusd_d.csv") %>% mutate(Data = ymd(Data)) %>% select(Data, xau = Zamkniecie)
 ```
 
-### 3. Ponaddto aby móc jak najlepiej przeanalizować dane, musimy stworzyć jeden data frame który będzie przechowywał dla danej daty informcję z ceną.
+### 3. Stworzenie data frame.
+Aby móc jak najlepiej przeanalizować dane, musimy stworzyć jeden **data frame** który będzie przechowywał dla danej daty informcję z ceną dla poszczególnych zmiennych.
 ``` {r}
 df <- btc %>%
   left_join(usd, by = "Data") %>%
@@ -42,18 +60,33 @@ df <- btc %>%
 
 ### 4. Usuwamy wiersze które nie posiadają danych.
 ``` {r} 
-df <- na.omit(df) # deleting rows with missing data.
-skim(df) # showing df stats
+df <- na.omit(df) # usuwnie wierszy z brakiem danych
+skim(df)
 ```
 
-## Analiza posiadanych danych
-Skoro nasze dane są już oczyszczone, zapoznajmy się z nimi i tym co reprezentują.
+> **Wnioksi:**
+>
+> * Posiadamy 752 wiersze, czyli 750 stopni swobody, co zapewnia wiarygodne wyniki testów,
+> * zakres czasowy od kwietnia 2023, do kwietnia 2026,
+> * 4 kolumny numeryczne, 1 typu *Date*.
+
+Pierwotne szeregi czasowe charakteryzują się różnymi dniami handlu na giełdzie – Bitcoin notowany jest w systemie ciągłym (24/7), a rynki tradycyjne (S&P 500, Złoto, USD Index) funkcjonują wyłącznie w dni robocze. W celu uniknięcia błędów oraz eliminacji braków danych wynikających z przerw weekendowych i świątecznych na rynkach tradycyjnych, z szeregu czasowego Bitcoina usunięto weekendy oraz dni wolne od pracy giełdy amerykańskiej. **Ostatecznie próba badawcza liczy 752 obserwacje, co stanowi optymalną i statystycznie dużą próbę dla Klasycznej Metody Najmniejszych Kwadratów.**
+
+---
+
+# Analiza posiadanych danych
+### 1. Zapoznajmy się z oczyszczonymi danymi.
 ``` {r} 
 summary(df)
 plot(df$Data, df$btc, type="l", col="blue", main="Cena BTC", xlab="Data", ylab="Cena")
 ```
 
-### 1. Analiza korelacji danych.
+> **Wnioski:**
+>
+> * cena Bitcoina wskazje w 2024 roku *tendencję wzrostową*, szczególnie w I kwartale oraz IV kwartale 2024 roku,
+> * w roku 2026 na rynku Bitcoina doszło do *głębokiej korekty spadkowej*, w wyniku której cena aktywa uległa spadku o około 50% w stosunku do szczytu wartości
+
+### 2. Analiza korelacji danych.
 ``` {r}
 cor_matrix <- cor(df[, c("btc", "usd", "spx", "xau")])
 cor_matrix
@@ -61,31 +94,37 @@ cor_matrix
 
 > **Wnioski: **
 >
-> * **BTC vs USD -0.28**: korelacja jest ujemna, korelacja jest słaba co oznaczam, że ta zmienna nie opisuje najlepiej ceny BTC,
-> * **BTC vs SPX 0.85**: bardzo silna korelacja dodatnia, BTC zachowuje się obecnie jak aktywo wysokiego ryzyka, korelując się z indeksem 500 największych spółek w USA,
-> * **BTC vs XAU 0.66**: korelacja jest umiarkowanie silna, BTC można nazywać jako cyforwe złoto, ale wciąż mocniej koreluje z giełdą SPX,
-> * **SPX vs XAU 0.89**: korelacja między dwiema zmiennymi objaśniającymi jest bardzo wysoka, podejrzenie **współliniowowści**, które zbadamy w późniejszej analizie.
+> * **BTC vs USD (-0.28)**: korelacja jest ujemna, korelacja jest słaba co oznaczam, że ta zmienna nie opisuje najlepiej ceny BTC,
+> * **BTC vs SPX (0.85)**: bardzo silna korelacja dodatnia, BTC zachowuje się obecnie jak aktywo wysokiego ryzyka, korelując się z indeksem 500 największych spółek w USA,
+> * **BTC vs XAU (0.66)**: korelacja jest umiarkowanie silna, BTC można nazywać jako cyforwe złoto, ale wciąż mocniej koreluje z giełdą SPX,
+> * **SPX vs XAU (0.89)**: korelacja między dwiema zmiennymi objaśniającymi jest bardzo wysoka, podejrzenie **współliniowowści**, które zbadamy w późniejszej analizie.
 
-## Badanie stacjonarności szeregów czasowych
-Zgodnie z teorią MNK, badamy stacjonarność, aby uniknąć problemu regresji pozornej. Wykorzystujemy Test ADF (Augmented Dickey-Fuller test).
+### 3. Badanie stacjonarności szeregów czasowych
+Analiza finansowych szeregów czasowych na podstawie surowych cen niesie za sobą wysokie ryzyko wystąpienia regresji pozornej tzn. sztucznie zawyżony współczynnik determinacji $R^2$ oraz istotności parametrów w sytuacji, gdy zmienne dzielą wspólny trend deterministyczny lub stochastyczny (tzn. dwie zupełnie niezależne od siebie rzeczy rosną lub spadają w tym samym czasie tylko dlatego, że podlegają np. upływowi czasu, inflacji lub rozwojowi technologii). W celu wyeliminowania tego problemu, konieczne jest zbadanie i eliminacja niestacjonarności. W tym celu zastosowano testy pierwiastka jednostkowego o przeciwnych hipotezach:
+
+Zgodnie z teorią MNK, badamy **stacjonarność**, aby uniknąć problemu regresji pozornej. Wykorzystujemy Test ADF (Augmented Dickey-Fuller test).
+
 * **H0**: szereg czasowy nie jest stacjonarny
 * **H1**: szereg czasowy jest stacjonarny
-```{r}
+
+```{r warning=FALSE}
 adf.test(df$btc)
 adf.test(df$usd)
 adf.test(df$spx)
 adf.test(df$xau)
 ```
-P-value testu ADF dla wszystkich zmiennych wynosi ponad 0.05, w związku z czym brak podstaw aby odrzucić H0, zmienne są niestacjonarne.
 
 > **Wnioski:**
 >
-> Ceny aktywów są niestacjonarne, ponieważ mają trendy (rosną w długim terminie). Budowanie modelu na takich danych prowadziłoby do błędnych wniosków.
+> * p-value testu ADF dla wszystkich zmiennych wynosi > 0.05, w związku z czym brak podstaw aby odrzucić H0, zmienne są niestacjonarne. Budowanie modelu na takich danych prowadziłoby do błędnych wniosków.
 
+### 4. Potwierdzenie testu ADF.
 Dla potwierdzenia skorzystajmy z testu KPSS (Kwiatkowskiego-Phillipsa-Schmidta-Shina) którego hipotezy są odwrócone.
+
 * **H0**: szereg czasowy jest stacjonarny
 * **H1**: szereg czasowy nie jest stacjonarny
-``` {r}
+
+``` {r warning=FALSE}
 kpss.test(df$btc)
 kpss.test(df$usd)
 kpss.test(df$spx)
@@ -94,21 +133,22 @@ kpss.test(df$xau)
 
 > **Wnioski:**
 >
-> Potwierdzenie, że ceny są niestacjonarne, p-value < 0,05, odrzucamy H0, w związku z czym musimy zmodyfikować nasze dane aby szereg był stacjonarny. 
+> * potwierdzenie, że ceny są niestacjonarne, p-value < 0,05, odrzucamy H0, w związku z czym musimy zmodyfikować nasze dane aby szereg był stacjonarny. 
 
-### Modyfikacja danych.
-Lepszym rozwiązaniem będzie analiza stóp zwrotu, które badają codzienne zmiany cen. Stopy zwrotu są stacjonarne, dzięki czemu możemy zbadać, jak mocno te rynki na siebie wpływają.
+### 5. Modyfikacja danych.
 
-``` {r}
+Lepszym rozwiązaniem będzie **analiza stóp zwrotu**, które badają codzienne zmiany cen. Stopy zwrotu są stacjonarne, dzięki czemu możemy zbadać, jak mocno te rynki na siebie wpływają.
+
+``` {r warning=FALSE}
 df_returns <- df %>%
-  arrange(Data) %>% # chronologiczne ustawienie danych
+  arrange(Data) %>%
   mutate(
     r_btc = c(NA, diff(log(btc))),
     r_usd = c(NA, diff(log(usd))),
     r_spx = c(NA, diff(log(spx))),
     r_xau = c(NA, diff(log(xau)))
   ) %>%
-  na.omit() # usunięcie wiersza, który po diff() stał się NA 
+  na.omit() # rusuwanie wierszy po użyciu diff() - wyliczenie różnic (przyrostów)
 
 adf.test(df_returns$r_btc)
 adf.test(df_returns$r_usd)
@@ -118,10 +158,11 @@ adf.test(df_returns$r_xau)
 
 > **Wnioski:**
 >
-> Dla wszystkich analizowanych zmiennych w postaci stóp zwrotu, test ADF pozwolił na odrzucenie hipotezy zerowej o niestacjonarności przy poziomie istotności p < 0,01. Szeregi są stacjonarne i umożliwiają dalszą estymację modelu."
+> * dla wszystkich analizowanych zmiennych w postaci stóp zwrotu, test ADF pozwolił na odrzucenie hipotezy zerowej o niestacjonarności przy poziomie istotności p < 0,01. Szeregi są stacjonarne i umożliwiają dalszą estymację modelu."
 
+---
 
-### Dzielimy dane na zbiór uczący (80%) i testowy (20%).
+### 6. Dzielimy dane na zbiór uczący (80%) i testowy (20%).
 ``` {r}
 n_obs <- nrow(df_returns)
 breakdown <- round(n_obs * 0.8)
@@ -130,16 +171,17 @@ df_learn <- df_returns[1:breakdown, ]
 df_test <- df_returns[(breakdown + 1):n_obs, ]
 ```
 
-### Ponowna weryfukacja korelacji zmiennych na zbiorze uczącym.
+### 7. Ponowna weryfikacja korelacji zmiennych na zbiorze uczącym.
 ``` {r}
 cor_learn <- cor(df_learn[, c("r_btc", "r_usd", "r_spx", "r_xau")])
 cor_learn
 ```
 
 > **Wnioski:**
-> ...
+> 
+> * na podstawie obliczonych korelacji możemy zauważyć, że największa korelacja Bitcoina występuje z S&P 500, ponaddto korelacja zmiennej objaśniającej z pozostałymi propozycjami nie posiada zbyt dużej koelacji.
 
-## Dobór zmiennych i budowa modelu
+# Budowa modelu
 Zastosowano metodę krokową wsteczną do wybrania ostatecznej postaci modelu.
 ```{r}
 model_full <- lm(r_btc ~ r_usd + r_spx + r_xau, data = df_learn)
@@ -220,7 +262,7 @@ runs.test(residuals(model_step))
 ```
 
 > **Wnioski:**
-> RESET podał wynik p-value 0.07445, test liczby serii 0.3268 - w obu nie odrzucamy H0 (przy α = 0.05), liniowa postać modelu jest poprawna.
+> RESET podał wynik p-value 0.07445, test liczby serii 0.3268 - w obu nie odrzucamy H0, liniowa postać modelu jest poprawna.
 
 ### 7. Koincydencja
 Patrzymy czy znak korelacji BTC ze SPX z macierzy zgadza się ze znakiem oszacowanego parametru w modelu.
@@ -282,5 +324,7 @@ cat("MAPE:", round(mape, 2), "%\n")
 ```
 
 Na zbiorze testowym RMSE wyszło ok. 0.026, czyli średnio mylimy się o ok. 2.6 p.p. stopy zwrotu. MAPE wyszło 123.9%, ale tę miarę trzeba brać z dystansem - stopy zwrotu często krążą wokół zera, a kiedy dzielimy przez liczby bliskie zera to MAPE drastycznie wzrasta. Dlatego sensowniejsze są tu RMSE i MAE.
+
+# Podsumowanie
 
 Podsumowując, nawet tak prosty model regresji liniowej z jedną zmienną pokazał istotny, dodatni związek między indeksem SPX a kursem BTC. W badanym okresie Bitcoin zachowywał się raczej jak aktywo wysokiego ryzyka skorelowane z giełdą amerykańską niż jak "cyfrowe złoto".
