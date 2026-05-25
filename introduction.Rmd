@@ -182,7 +182,8 @@ cor_learn
 > * na podstawie obliczonych korelacji możemy zauważyć, że największa korelacja Bitcoina występuje z S&P 500, ponaddto korelacja zmiennej objaśniającej z pozostałymi propozycjami nie posiada zbyt dużej koelacji.
 
 # Budowa modelu
-Zastosowano metodę krokową wsteczną do wybrania ostatecznej postaci modelu.
+Do wybrania ostatecznej postaci modelu zastosowano **metodę krokową wsteczną**. Polega ona na rozpoczęciu od modelu zawierającego wszystkie potencjalne zmienne objaśniające i sukcesywnym usuwaniu tych zmiennych, których eliminacja prowadzi do minimalizacji kryterium informacyjnego Akaike (AIC).
+
 ```{r}
 model_full <- lm(r_btc ~ r_usd + r_spx + r_xau, data = df_learn)
 model_step <- step(model_full, direction = "backward")
@@ -197,6 +198,8 @@ summary(model_step)
 Mając już oszacowany model trzeba sprawdzić czy są spełnione wszystkie założenia MNK.
 
 ### 1. Normalność rozkładu składnika losowego – test Jarque-Bera
+Test Jarque-Bera bada normalność rozkładu reszt na podstawie ich **skośności** i **kurtozy**. Normalność reszt jest jednym z założeń MNK i warunkiem poprawności klasycznych testów istotności opartych na rozkładzie t-Studenta.
+
 * **H0**: składnik losowy ma rozkład normalny
 * **H1**: nie ma rozkładu normalnego
 ```{r}
@@ -207,7 +210,8 @@ jarque.bera.test(residuals(model_step))
 > P-value bardzo małe < 2.2e-16, czyli odrzucamy H0. Reszty nie mają rozkładu normalnego. Nie jest to duży problem, bo próba jest duża i estymator MNK pozostaje zgodny.
 
 ### 2. Autokorelacja składnika losowego
-Stosujemy dwa testy: Durbina-Watsona (autokorelacja I rzędu) oraz Breuscha-Godfreya (wyższe rzędy).
+Autokorelacja oznacza, że składniki losowe w kolejnych okresach są ze sobą skorelowane, co narusza założenie MNK o niezależności reszt. Stosujemy dwa testy: **Durbina-Watsona** (wykrywa autokorelację I rzędu) oraz **Breuscha-Godfreya** (uogólnienie wykrywające autokorelację wyższych rzędów).
+
 * **H0**: brak autokorelacji
 * **H1**: występuje autokorelacja
 ```{r}
@@ -219,7 +223,8 @@ bgtest(model_step)
 > P-value 0.8164 i 0.3606, nie ma podstaw do odrzucenia H0. Autokorelacji w resztach nie ma, więc jedno z głównych założeń MNK jest spełnione - macierz wariancji-kowariancji składników losowych jest diagonalna.
 
 ### 3. Homoskedastyczność składnika losowego
-Test Breuscha-Pagana oraz Goldfelda-Quandta.
+Homoskedastyczność oznacza, że wariancja składnika losowego jest stała dla wszystkich obserwacji. Jej brak (heteroskedastyczność) nie psuje zgodności estymatora MNK, ale powoduje obciążenie błędów standardowych. **Test Breuscha-Pagana** opiera się na regresji pomocniczej kwadratów reszt na zmiennych objaśniających, natomiast **test Goldfelda-Quandta** dzieli próbę na dwie części i porównuje wariancje reszt w obu segmentach (wykrywa heteroskedastyczność monotoniczną).
+
 * **H0**: wariancja składnika losowego jest stała (homoskedastyczność)
 * **H1**: heteroskedastyczność
 ```{r}
@@ -231,7 +236,8 @@ gqtest(model_step)
 > Wyniki testów są sprzeczne - BP zwrócił p-value 0.01625 (odrzucamy H0), a GQ p-value 0.8734 (H0 zostaje). BP wychwytuje ogólniejszą zależność wariancji od zmiennej objaśniającej, GQ tylko monotoniczną. Dla bezpieczeństwa zastosujemy później odporne błędy standardowe HAC.
 
 ### 4. Współliniowość
-Współczynnik VIF.
+Współczynnik **VIF** mierzy, o ile zwiększa się wariancja oszacowania parametru z powodu współliniowości między zmiennymi objaśniającymi. Przyjmuje się, że wartości VIF > 5 sygnalizują problem ze współliniowością.
+
 ```{r}
 if (length(coef(model_step)) > 2) {
   vif(model_step)
@@ -244,6 +250,8 @@ if (length(coef(model_step)) > 2) {
 > Po eliminacji krokowej w modelu została jedna zmienna, więc nie ma jak obliczyć współczynnika VIF (potrzeba minimum dwóch zmiennych objaśniających).
 
 ### 5. Stabilność parametrów – test Chowa
+Test Chowa służy do sprawdzenia, czy parametry modelu są takie same w dwóch wyznaczonych podpróbach (sprawdza stabilność strukturalną modelu w czasie). Odrzucenie H0 oznaczałoby wystąpienie zmiany strukturalnej.
+
 * **H0**: parametry modelu są stabilne w czasie
 * **H1**: parametry nie są stabilne
 ```{r}
@@ -254,6 +262,8 @@ sctest(formula(model_step), type = "Chow", point = floor(nrow(df_learn)/2), data
 > P-value 0.3836, znowu H0 nie odrzucamy. Parametry są stabilne między pierwszą a drugą połową próby uczącej.
 
 ### 6. Postać analityczna i liniowość – test RESET (Ramseya) i test liczby serii
+**Test RESET (Ramseya)** sprawdza, czy do modelu nie należałoby dodać wyższych potęg wartości dopasowanych — jego odrzucenie sugeruje, że liniowa postać modelu jest niewystarczająca. **Test liczby serii** bada losowość znaków reszt — zbyt mała lub zbyt duża liczba serii świadczy o nielosowości i błędnej specyfikacji modelu.
+
 * **H0**: postać modelu jest dobrze dobrana, model jest liniowy
 * **H1**: model nie jest liniowy
 ```{r}
@@ -265,7 +275,8 @@ runs.test(residuals(model_step))
 > RESET podał wynik p-value 0.07445, test liczby serii 0.3268 - w obu nie odrzucamy H0, liniowa postać modelu jest poprawna.
 
 ### 7. Koincydencja
-Patrzymy czy znak korelacji BTC ze SPX z macierzy zgadza się ze znakiem oszacowanego parametru w modelu.
+Koincydencja oznacza zgodność znaku oszacowanego parametru ze znakiem korelacji prostej między zmienną objaśnianą a daną zmienną objaśniającą. Brak koincydencji może wskazywać na problemy ze specyfikacją modelu lub na występowanie efektu katalizy.
+
 ```{r}
 cor(df_learn$r_btc, df_learn$r_spx)
 coef(model_step)
@@ -273,9 +284,17 @@ coef(model_step)
 > **Wnioski:**
 > Korelacja BTC i SPX dodatnia (0.319), parametr przy r_spx też dodatni (0.969). Znaki się zgadzają, koincydencja spełniona.
 
+### 8. Efekt katalizy
+Efekt katalizy występuje, gdy w modelu pojawia się para zmiennych objaśniających, dla których korelacja jednej ze zmiennych ze zmienną objaśnianą oraz ich wzajemna korelacja prowadzą do sztucznego zawyżenia współczynnika determinacji $R^2$. Bada się go najczęściej poprzez analizę par korelacji w macierzy korelacji zmiennych objaśniających względem zmiennej objaśnianej.
+
+> **Wnioski:**
+> Po eliminacji krokowej w modelu została tylko jedna zmienna objaśniająca (r_spx), więc efekt katalizy z definicji nie może wystąpić.
+
 ---
 
 ## Uwiarygodnienie testów (HAC)
+
+Odporne błędy standardowe **HAC** pozostają wiarygodne nawet w obecności heteroskedastyczności i autokorelacji składnika losowego. Stosuje się je do uwiarygodnienia testów istotności, gdy klasyczne założenia MNK są naruszone. **Test Walda** służy z kolei do weryfikacji łącznej istotności jednego lub większej liczby parametrów w modelu (H0: badane parametry są równe zero).
 
 Wyniki testów heteroskedastyczności są sprzeczne, dla pewności sprawdziliśmy istotność zmiennej również przy użyciu odpornych błędów standardowych HAC.
 
@@ -290,7 +309,8 @@ P-value rzędu 10^-9 - parametr przy r_spx jest istotny nawet przy odpornych bł
 
 ## Ostateczna postać modelu i jego ocena
 
-Współczynnik determinacji $R^2$:
+Współczynnik determinacji $R^2$ informuje, jaka część zmienności zmiennej objaśnianej została wyjaśniona przez model. Przyjmuje wartości z przedziału [0, 1] — im bliżej 1, tym lepsze dopasowanie modelu do danych.
+
 ```{r}
 summary(model_step)$r.squared
 ```
@@ -301,11 +321,13 @@ $$r\_btc_i = \beta_0 + \beta_1 \cdot r\_spx_i + \varepsilon_i$$
 **Interpretacja parametru przy r_spx (ok. 0.97):**
 Jeśli stopa zwrotu SPX wzrośnie o 1 jednostkę (tj. o 1 p.p.), to stopa zwrotu BTC wzrośnie średnio o 0.97 jednostki, ceteris paribus. W praktyce: jak amerykańska giełda rośnie o 1%, to BTC rośnie średnio o ok. 0.97%.
 
-R^2 = 0.1016, czyli model wyjaśnia ok. 10.2% zmienności stóp zwrotu BTC. Na pierwszy rzut oka to mało, ale na dziennych danych z rynku to całkiem dobrze - ruchy cen są w dużej części losowe i nawet zaawansowane modele rzadko schodzą wysoko.
+R^2 = 0.1016, czyli model wyjaśnia ok. 10.2% zmienności stóp zwrotu BTC. Na pierwszy rzut oka to mało, ale na dziennych danych z rynku to całkiem dobrze - ruchy cen as w dużej części losowe i nawet zaawansowane modele rzadko schodzą wysoko.
 
 ---
 
 ## Prognoza na zbiorze testowym
+
+Do oceny jakości prognozy na zbiorze testowym wykorzystano trzy miary błędów ex post: **RMSE** (pierwiastek błędu średniokwadratowego — w tych samych jednostkach co zmienna), **MAE** (średni absolutny błąd — odporny na wartości odstające) oraz **MAPE** (względny błąd procentowy).
 
 ```{r}
 predykcje <- predict(model_step, newdata = df_test)
@@ -320,11 +342,11 @@ cat("MAE:", mae, "\n")
 
 # MAPE – średni absolutny błąd procentowy
 mape <- mean(abs((df_test$r_btc - predykcje) / df_test$r_btc), na.rm = TRUE) * 100
-cat("MAPE:", round(mape, 2), "%\n")
+cat("MAPE (względny błąd ex post):", round(mape, 2), "%\n")
 ```
 
 Na zbiorze testowym RMSE wyszło ok. 0.026, czyli średnio mylimy się o ok. 2.6 p.p. stopy zwrotu. MAPE wyszło 123.9%, ale tę miarę trzeba brać z dystansem - stopy zwrotu często krążą wokół zera, a kiedy dzielimy przez liczby bliskie zera to MAPE drastycznie wzrasta. Dlatego sensowniejsze są tu RMSE i MAE.
 
 # Podsumowanie
 
-Podsumowując, nawet tak prosty model regresji liniowej z jedną zmienną pokazał istotny, dodatni związek między indeksem SPX a kursem BTC. W badanym okresie Bitcoin zachowywał się raczej jak aktywo wysokiego ryzyka skorelowane z giełdą amerykańską niż jak "cyfrowe złoto".
+Podsumowując, nawet tak prosty model regresji liniowej z jedną zmienną pokazał istotny, dodatni związek między indeksem SPX a kursem BTC. W badanym okresie Bitcoin zachowywał się raczej jak aktywo wysokiego ryzyka skorelowane z giełdą amerykańską niż jak "cyfrowe złoto". Co ciekawe, zarówno złoto, jak i USD Index okazały się statystycznie nieistotne — silne korelacje widoczne na surowych cenach były pozorne i wynikały wyłącznie ze wspólnego trendu w długim okresie. Model spełnia większość założeń MNK, a jego istotność została dodatkowo potwierdzona przy użyciu odpornych błędów standardowych HAC. Niski współczynnik $R^2$ na poziomie ok. 10% jest typowy dla dziennych stóp zwrotu z rynków finansowych, gdzie duża część ruchów cen ma charakter losowy.
