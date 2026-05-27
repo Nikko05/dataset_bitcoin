@@ -1,12 +1,19 @@
 ---
 title: "Analiza ekonometryczna czynników determinujących kurs Bitcoina w latach 2023–2026."
-author: Michał Dyrga & Nikodem Kusiak
-output: 
+author: "Michał Dyrga & Nikodem Kusiak"
+output:
   pdf_document:
     toc: true
     toc_depth: 3
     number_sections: true
     latex_engine: xelatex
+  html_document:
+    toc: true
+    toc_depth: '3'
+    df_print: paged
+  word_document:
+    toc: true
+    toc_depth: '3'
 ---
 
 # Opis tematu.
@@ -223,7 +230,7 @@ bgtest(model_step)
 > P-value 0.8164 i 0.3606, nie ma podstaw do odrzucenia H0. Autokorelacji w resztach nie ma, więc jedno z głównych założeń MNK jest spełnione - macierz wariancji-kowariancji składników losowych jest diagonalna.
 
 ### 3. Homoskedastyczność składnika losowego
-Homoskedastyczność oznacza, że wariancja składnika losowego jest stała dla wszystkich obserwacji. Jej brak (heteroskedastyczność) nie psuje zgodności estymatora MNK, ale powoduje obciążenie błędów standardowych. **Test Breuscha-Pagana** opiera się na regresji pomocniczej kwadratów reszt na zmiennych objaśniających, natomiast **test Goldfelda-Quandta** dzieli próbę na dwie części i porównuje wariancje reszt w obu segmentach (wykrywa heteroskedastyczność monotoniczną).
+Homoskedastyczność oznacza, że wariancja składnika losowego jest stała dla wszystkich obserwacji. Jej brak (heteroskedastyczność) nie psuje zgodności estymatora MNK, ale powoduje obciążenie błędów standardowych. **Test Breuscha-Pagana** opiera się na regresji pomocniczej kwadratów reszt na zmiennych objaśniających, natomiast **test Goldfelda-Quandta** dzieli próbę na dwie części i porównuje wariancje reszt w obu segmentach, wykrywa heteroskedastyczność monotoniczną.
 
 * **H0**: wariancja składnika losowego jest stała (homoskedastyczność)
 * **H1**: heteroskedastyczność
@@ -250,7 +257,7 @@ if (length(coef(model_step)) > 2) {
 > Po eliminacji krokowej w modelu została jedna zmienna, więc nie ma jak obliczyć współczynnika VIF (potrzeba minimum dwóch zmiennych objaśniających).
 
 ### 5. Stabilność parametrów – test Chowa
-Test Chowa służy do sprawdzenia, czy parametry modelu są takie same w dwóch wyznaczonych podpróbach (sprawdza stabilność strukturalną modelu w czasie). Odrzucenie H0 oznaczałoby wystąpienie zmiany strukturalnej.
+Test Chowa służy do sprawdzenia, czy parametry modelu są takie same w dwóch wyznaczonych podpróbach (stabilność struktury modelu w czasie). Odrzucenie H0 oznaczałoby wystąpienie zmiany strukturalnej.
 
 * **H0**: parametry modelu są stabilne w czasie
 * **H1**: parametry nie są stabilne
@@ -294,9 +301,12 @@ Efekt katalizy występuje, gdy w modelu pojawia się para zmiennych objaśniają
 
 ## Uwiarygodnienie testów (HAC)
 
-Odporne błędy standardowe **HAC** pozostają wiarygodne nawet w obecności heteroskedastyczności i autokorelacji składnika losowego. Stosuje się je do uwiarygodnienia testów istotności, gdy klasyczne założenia MNK są naruszone. **Test Walda** służy z kolei do weryfikacji łącznej istotności jednego lub większej liczby parametrów w modelu (H0: badane parametry są równe zero).
+Odporne błędy standardowe **HAC** pozostają wiarygodne nawet w obecności heteroskedastyczności i autokorelacji składnika losowego. Stosuje się je do uwiarygodnienia testów istotności, gdy klasyczne założenia MNK są naruszone. **Test Walda** służy z kolei do weryfikacji łącznej istotności jednego lub większej liczby parametrów w modelu.
 
 Wyniki testów heteroskedastyczności są sprzeczne, dla pewności sprawdziliśmy istotność zmiennej również przy użyciu odpornych błędów standardowych HAC.
+
+* **H0**: β₁ = 0
+* **H1**: β₁ ≠ 0
 
 ```{r}
 coeftest(model_step, vcov = vcovHAC(model_step))
